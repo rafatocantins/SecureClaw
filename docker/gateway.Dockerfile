@@ -33,8 +33,8 @@ COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages
 COPY --from=build --chown=10001:10001 /app/packages/gateway/dist/ packages/gateway/dist/
 COPY --from=build --chown=10001:10001 /app/packages/gateway/package.json packages/gateway/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
-COPY --from=deps --chown=10001:10001 /app/packages/shared/node_modules/ packages/shared/node_modules/ 2>/dev/null || true
-COPY --from=deps --chown=10001:10001 /app/packages/gateway/node_modules/ packages/gateway/node_modules/ 2>/dev/null || true
+COPY --from=deps --chown=10001:10001 /app/packages/shared/node_modules/ packages/shared/node_modules/
+COPY --from=deps --chown=10001:10001 /app/packages/gateway/node_modules/ packages/gateway/node_modules/
 
 USER 10001:10001
 

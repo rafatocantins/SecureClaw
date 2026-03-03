@@ -29,7 +29,7 @@ COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages
 COPY --from=build --chown=10001:10001 /app/packages/agent-runtime/dist/ packages/agent-runtime/dist/
 COPY --from=build --chown=10001:10001 /app/packages/agent-runtime/package.json packages/agent-runtime/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
-COPY --from=deps --chown=10001:10001 /app/packages/agent-runtime/node_modules/ packages/agent-runtime/node_modules/ 2>/dev/null || true
+COPY --from=deps --chown=10001:10001 /app/packages/agent-runtime/node_modules/ packages/agent-runtime/node_modules/
 
 USER 10001:10001
 

@@ -31,7 +31,7 @@ COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages
 COPY --from=build --chown=10001:10001 /app/packages/memory-store/dist/ packages/memory-store/dist/
 COPY --from=build --chown=10001:10001 /app/packages/memory-store/package.json packages/memory-store/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
-COPY --from=deps --chown=10001:10001 /app/packages/memory-store/node_modules/ packages/memory-store/node_modules/ 2>/dev/null || true
+COPY --from=deps --chown=10001:10001 /app/packages/memory-store/node_modules/ packages/memory-store/node_modules/
 
 USER 10001:10001
 

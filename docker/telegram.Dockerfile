@@ -25,7 +25,7 @@ RUN addgroup -g 10001 tessera && \
 COPY --from=build --chown=10001:10001 /app/packages/channels/telegram/dist/ packages/channels/telegram/dist/
 COPY --from=build --chown=10001:10001 /app/packages/channels/telegram/package.json packages/channels/telegram/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
-COPY --from=deps --chown=10001:10001 /app/packages/channels/telegram/node_modules/ packages/channels/telegram/node_modules/ 2>/dev/null || true
+COPY --from=deps --chown=10001:10001 /app/packages/channels/telegram/node_modules/ packages/channels/telegram/node_modules/
 
 USER 10001:10001
 
