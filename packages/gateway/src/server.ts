@@ -10,6 +10,7 @@
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyCors from "@fastify/cors";
+import fastifyHelmet from "@fastify/helmet";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
 import type { GatewayConfig } from "@tessera/shared";
@@ -82,6 +83,27 @@ export async function buildServer(config: GatewayConfig, agentClient: AgentGrpcC
 
   // WebSocket support
   await app.register(fastifyWebsocket);
+
+  // Security headers — registered after websocket, before routes
+  // Pure JSON API server: CSP locked down to 'none' except connect-src 'self' for WS.
+  // crossOriginEmbedderPolicy disabled: COEP would break the Vite frontend WS connection
+  // without coordinated COOP headers on the client side.
+  await app.register(fastifyHelmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        connectSrc: ["'self'"],
+        scriptSrc:  ["'none'"],
+        styleSrc:   ["'none'"],
+        imgSrc:     ["'none'"],
+        frameSrc:   ["'none'"],
+        objectSrc:  ["'none'"],
+        baseUri:    ["'none'"],
+        formAction: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  });
 
   // Global security hook: block tokens in query params on ALL routes
   app.addHook("onRequest", blockTokenInQueryParams);
