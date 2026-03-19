@@ -28,6 +28,7 @@ type ChatEntry =
   | { id: string; kind: "injection_warning"; excerpt: string };
 
 type WsStatus = "idle" | "connecting" | "open" | "closed" | "error";
+type TokenStatus = "ok" | "refreshing" | "failed";
 
 interface ServerMsg {
   type: string;
@@ -47,9 +48,26 @@ export function Chat({ secret }: { secret: string }) {
   const [streaming, setStreaming] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tokenStatus, setTokenStatus] = useState<TokenStatus>("ok");
+  const [reconnecting, setReconnecting] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expirySecondsRef = useRef<number>(300);
+  const wsOpenedAtRef = useRef<number>(0);
+  // Stable ref so scheduleRefresh (empty deps) always calls the latest refreshToken
+  const refreshTokenRef = useRef<(sid: string) => Promise<void>>(async () => {});
+
+  // Fetch token expiry config on mount
+  useEffect(() => {
+    void fetch("/api/v1/token/config")
+      .then((r) => r.json())
+      .then((data: { expiry_seconds: number }) => {
+        expirySecondsRef.current = data.expiry_seconds;
+      })
+      .catch(() => { /* keep default 300 */ });
+  }, []);
 
   // Auto-scroll thread to bottom when new entries arrive
   useEffect(() => {
@@ -57,20 +75,35 @@ export function Chat({ secret }: { secret: string }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
-  // Cleanup WS on unmount
+  // Cleanup WS and refresh timer on unmount
   useEffect(() => {
     return () => {
       wsRef.current?.close();
+      if (refreshTimerRef.current !== null) clearTimeout(refreshTimerRef.current);
     };
   }, []);
+
+  // ── Proactive token refresh ──────────────────────────────────────────────
+
+  // Schedules the next refresh timer. Uses only refs — stable, no React deps.
+  const scheduleRefresh = useCallback((sid: string) => {
+    if (refreshTimerRef.current !== null) clearTimeout(refreshTimerRef.current);
+    // Drift correction: subtract time already elapsed since WS opened
+    const elapsed = Date.now() - wsOpenedAtRef.current;
+    const delay = Math.max(0, (expirySecondsRef.current - 60) * 1000 - elapsed);
+    refreshTimerRef.current = setTimeout(
+      () => void refreshTokenRef.current(sid),
+      delay
+    );
+  }, []); // intentionally empty — only accesses refs
 
   // ── WebSocket connection ─────────────────────────────────────────────────
 
   const connectWs = useCallback(
-    async (sid: string) => {
+    async (sid: string, preserveHistory = false) => {
       wsRef.current?.close();
       setWsStatus("connecting");
-      setEntries([]);
+      if (!preserveHistory) setEntries([]);
 
       const token = await getToken();
       const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -79,7 +112,11 @@ export function Chat({ secret }: { secret: string }) {
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
-      ws.onopen = () => setWsStatus("open");
+      ws.onopen = () => {
+        setWsStatus("open");
+        wsOpenedAtRef.current = Date.now();
+        scheduleRefresh(sid);
+      };
 
       ws.onclose = () => {
         setWsStatus("closed");
@@ -101,8 +138,41 @@ export function Chat({ secret }: { secret: string }) {
         handleServerMsg(msg);
       };
     },
-    [getToken]
+    [getToken, scheduleRefresh]
   );
+
+  // Refreshes the token and silently reconnects WS, preserving chat history.
+  // On failure, sets tokenStatus="failed" to trigger the amber banner.
+  const refreshToken = useCallback(
+    async (sid: string) => {
+      setTokenStatus("refreshing");
+      try {
+        const currentToken = await getToken();
+        const res = await fetch("/api/v1/token/refresh", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${currentToken}` },
+        });
+        if (!res.ok) {
+          setTokenStatus("failed");
+          return;
+        }
+        // Mark any streaming entry as done before closing WS
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.kind === "assistant" && e.streaming ? { ...e, streaming: false } : e
+          )
+        );
+        setTokenStatus("ok");
+        await connectWs(sid, true); // preserveHistory=true: no setEntries([])
+      } catch {
+        setTokenStatus("failed");
+      }
+    },
+    [getToken, connectWs]
+  );
+
+  // Keep refreshTokenRef pointing to the latest version (breaks circular dep)
+  refreshTokenRef.current = refreshToken;
 
   // ── Server message handler ───────────────────────────────────────────────
 
@@ -219,6 +289,13 @@ export function Chat({ secret }: { secret: string }) {
       }
       const data = (await res.json()) as { session_id: string };
       setSessionId(data.session_id);
+      // Re-fetch config in case TOKEN_EXPIRY_SECONDS changed since mount
+      const cfgRes = await fetch("/api/v1/token/config").catch(() => null);
+      if (cfgRes?.ok) {
+        const cfg = (await cfgRes.json()) as { expiry_seconds: number };
+        expirySecondsRef.current = cfg.expiry_seconds;
+      }
+      setTokenStatus("ok");
       await connectWs(data.session_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create session");
@@ -305,7 +382,14 @@ export function Chat({ secret }: { secret: string }) {
           </span>
         )}
 
-        <span style={{ ...s.dot, background: WS_COLOR[wsStatus] }} title={`WebSocket: ${wsStatus}`} />
+        <span
+          style={{
+            ...s.dot,
+            background: dotColor(wsStatus, tokenStatus),
+            transition: "background-color 0.2s",
+          }}
+          title={dotTitle(wsStatus, tokenStatus)}
+        />
 
         {error && <span style={s.errorMsg}>{error}</span>}
       </div>
@@ -428,6 +512,26 @@ export function Chat({ secret }: { secret: string }) {
         })}
       </div>
 
+      {/* Token expiry failure banner — shown only when refresh fails */}
+      {tokenStatus === "failed" && (
+        <div role="alert" aria-live="assertive" style={s.refreshBanner}>
+          <span>⚠&nbsp; Session expired. Your chat history is preserved.</span>
+          <button
+            style={{ ...s.btn, ...(reconnecting ? s.btnDisabled : {}) }}
+            disabled={reconnecting}
+            onClick={() => {
+              if (!sessionId) return;
+              setReconnecting(true);
+              void refreshToken(sessionId).finally(() => {
+                setTimeout(() => setReconnecting(false), 3000);
+              });
+            }}
+          >
+            {reconnecting ? "Retrying…" : "Reconnect"}
+          </button>
+        </div>
+      )}
+
       {/* Input bar */}
       <div style={s.inputBar}>
         <textarea
@@ -481,13 +585,26 @@ function toolPalette(tool_id: string) {
   return TOOL_PALETTE[tool_id] ?? TOOL_PALETTE["default"]!;
 }
 
-const WS_COLOR: Record<WsStatus, string> = {
-  idle: "#444",
-  connecting: "#ff9800",
-  open: "#4caf50",
-  closed: "#666",
-  error: "#f44336",
-};
+function dotColor(ws: WsStatus, tok: TokenStatus): string {
+  if (ws === "error") return "#f44336";
+  if (ws === "connecting") return "#ff9800";
+  if (ws === "closed") return tok === "failed" ? "#f44336" : "#666";
+  if (ws === "idle") return "#444";
+  // ws === "open"
+  if (tok === "failed") return "#f44336";
+  if (tok === "refreshing") return "#ff9800";
+  return "#4caf50";
+}
+
+function dotTitle(ws: WsStatus, tok: TokenStatus): string {
+  if (ws === "error") return "Connection error";
+  if (ws === "connecting") return "Connecting…";
+  if (ws === "open" && tok === "refreshing") return "Reconnecting session…";
+  if (ws === "open" && tok === "failed") return "Session expired";
+  if (ws === "open") return "Session active";
+  if (tok === "failed") return "Session expired — reconnect";
+  return "Session closed";
+}
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 
@@ -727,5 +844,18 @@ const s = {
     flexShrink: 0,
     alignSelf: "flex-end" as const,
     height: "36px",
+  },
+  // Token expiry failure banner (between thread and input bar)
+  refreshBanner: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "8px 20px",
+    background: "#141008",
+    borderLeft: "3px solid #ffa726",
+    borderTop: "1px solid #3a2c00",
+    fontSize: "12px",
+    color: "#ffcc80",
+    flexShrink: 0,
   },
 } as const;
