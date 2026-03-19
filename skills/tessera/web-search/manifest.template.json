@@ -1,0 +1,60 @@
+{
+  "id": "tessera/web-search",
+  "name": "Web Search",
+  "version": "1.0.0",
+  "description": "Search the web using Google (via SerpAPI) and return organic results with titles, links, and snippets. Requires a SerpAPI key stored in the vault.",
+  "author": {
+    "name": "Tessera Project"
+  },
+  "published_at": "2026-03-03T00:00:00Z",
+  "public_key": "REPLACE_WITH_HEX_SPKI_PUBLIC_KEY",
+  "signature": "",
+  "tools": [
+    {
+      "tool_id": "web_search",
+      "description": "Search the web for a query and return the top organic results (title, URL, snippet). Use this when you need current information or want to look something up online.",
+      "image": {
+        "repository": "ghcr.io/tessera/web-search",
+        "tag": "1.0.0",
+        "digest": "sha256:REPLACE_WITH_ACTUAL_IMAGE_DIGEST"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search query to look up"
+          },
+          "num_results": {
+            "type": "integer",
+            "description": "Number of results to return (1–10, default 10)",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 10
+          }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "requires_approval": false,
+      "resource_limits": {
+        "memory_bytes": 134217728,
+        "pids_limit": 16,
+        "timeout_seconds": 30,
+        "network": "full",
+        "read_only_fs": true,
+        "allowed_paths": []
+      }
+    }
+  ],
+  "permissions": {
+    "network_access": true,
+    "allowed_domains": ["serpapi.com"],
+    "filesystem_read": [],
+    "filesystem_write": [],
+    "credential_refs": ["serpapi-key"]
+  },
+  "tags": ["web", "search", "google", "serpapi"],
+  "license": "MIT",
+  "min_tessera_version": "0.1.0"
+}

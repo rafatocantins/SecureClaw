@@ -31,7 +31,7 @@ COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages
 COPY --from=build --chown=10001:10001 /app/packages/audit-system/dist/ packages/audit-system/dist/
 COPY --from=build --chown=10001:10001 /app/packages/audit-system/package.json packages/audit-system/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
-COPY --from=deps --chown=10001:10001 /app/packages/audit-system/node_modules/ packages/audit-system/node_modules/ 2>/dev/null || true
+COPY --from=deps --chown=10001:10001 /app/packages/audit-system/node_modules/ packages/audit-system/node_modules/
 
 USER 10001:10001
 

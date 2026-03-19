@@ -11,7 +11,7 @@ etc.) cut corners.
 
 ## What is done today
 
-### Core infrastructure (Blocks 1–7, commits 92f5b55–e9e1e4d)
+### Core infrastructure (Blocks 1–7, commits 92f5b55–e9e1e4d) ✅
 
 | Component | Port | Notes |
 |---|---|---|
@@ -25,8 +25,8 @@ etc.) cut corners.
 | `@tessera/channel-webchat` | — | Static HTML + WebSocket chat client |
 | `@tessera/skills-engine` | 19005 | Ed25519-signed tool bundles, gRPC registry |
 | `@tessera/memory-store` | 19006 | SQLite + FTS5, session/message persistence |
-| `@tessera/control-ui` | 5173 | React dashboard (Vite) |
-| `@tessera/cli` | — | `tessera` CLI (token, session, skill) |
+| `@tessera/control-ui` | 5173 | React dashboard (Vite) — full chat panel |
+| `@tessera/cli` | — | `tessera` CLI (token, session, skill keygen/sign/install-local) |
 | Telegram channel | — | Bot adapter (profile: channels) |
 | Slack channel | — | Socket Mode adapter (profile: channels) |
 | Integration tests | — | Docker Compose stack, mock LLM, E2E suite |
@@ -43,17 +43,33 @@ etc.) cut corners.
 | CLI `skill` commands (publish, list, install, installed) | ✅ complete |
 | Control UI: Compliance, Costs, Marketplace tabs | ✅ complete |
 | Dual-backend keychain (keytar + AES-256-GCM fallback) | ✅ complete |
-| Unit tests: 266 total | ✅ passing |
+| Unit tests: 344 total | ✅ passing |
 | Integration compose stack fixed (3-file chain, profiles) | ✅ complete |
+| **SSRF prevention** (`checkUrlSafety` — 7 ordered checks, 36 tests) | ✅ complete |
+| **DNS rebinding defence** (`checkUrlSafetyResolved` — async DNS resolve + IP check) | ✅ complete |
+| **Tool output injection defence** (all tool results piped through `sanitizeExternalContent`) | ✅ complete |
+| **Agent turn cap** (`AGENT_MAX_TURNS_PER_SESSION`, default 20) | ✅ complete |
+| **Control-UI chat panel** (streaming WS, tool approval, cost receipt) | ✅ complete |
+| **`tessera/read-url` skill** (first bundled skill — Node.js URL fetcher) | ✅ complete |
+| **CLI skill tooling** (`tessera skill keygen`, `sign`, `install-local`) | ✅ complete |
+| **Gateway `/api/v1/skills`** (`GET` list + `POST` install-local) | ✅ complete |
+| **Dockerfile COPY fix** (removed `2>/dev/null \|\| true` from all 9 service Dockerfiles) | ✅ complete |
+| **`tessera/web-search` skill** (SerpAPI, `credential_refs`, vault injection end-to-end) | ✅ complete |
+| **Credential injection pipeline** (`SkillToolRoute.credential_refs` → `getSecretRef` → `injectCredential`) | ✅ complete |
+| **`tessera vault` CLI** (`store`, `list`, `delete` under `skill-creds` namespace) | ✅ complete |
+| **`docker/agent-runtime.Dockerfile`** — added missing `input-sanitizer` layer | ✅ complete |
+| Unit tests: 344 total | ✅ passing |
 
 ### Security invariants (permanent, never relax)
 
 1. Gateway bound to 127.0.0.1 only
 2. HMAC auth on every authenticated route — no bypass
-3. Tokens in `Authorization` header only (query param → 401)
+3. Tokens in `Authorization` header only; `?token=` only permitted on WebSocket upgrades (browsers cannot set custom WS headers)
 4. gVisor required for tool execution (dev escape hatch: `TESSERA_ALLOW_RUNC=true`)
 5. LLM sees only `__VAULT_REF:id__` placeholders, never raw secrets
 6. Audit log: SQLite triggers block UPDATE/DELETE on `audit_events`
+7. All tool output scanned for injection before entering LLM context
+8. SSRF: `checkUrlSafetyResolved` validates hostname string + DNS-resolved IPs; fail-closed on DNS error
 
 ---
 
@@ -427,22 +443,28 @@ Extend the marketplace with a full provenance chain:
 
 ## Immediate next actions (priority order)
 
-DX items are top priority — nothing else ships until the project works cleanly
-on all three major OS with a single command.
-
 | # | Task | Effort | Phase |
 |---|---|---|---|
-| 1 | Replace `better-sqlite3` with `@libsql/client` (cross-platform prebuilts) | ~2 sessions | DX-A |
-| 2 | ~~Add `pnpm dev` single-command start with `concurrently`~~ ✅ | done | DX-B |
-| 3 | ~~`tessera init` setup wizard + `.env` support in all services~~ ✅ | done | DX-C |
-| 4 | GitHub Actions CI matrix (Windows / macOS / Linux × Node 20/22) | ~0.5 sessions | DX-D |
-| 5 | Add OTel spans to `agent-loop.ts` | ~1 session | Phase 1 (remaining) |
-| 6 | Configurable token expiry + refresh endpoint | ~0.5 sessions | Phase 2D |
-| 7 | Hard quota enforcement per team | ~1 session | Phase 2A |
-| 8 | Webhook alerting (approvals, quota, injection) | ~1 session | Phase 2A |
-| 9 | Vault key rotation CLI command | ~1 session | Phase 2B |
-| 10 | Backup / restore CLI commands | ~2 sessions | Phase 2C |
-| 11 | RBAC roles in token + gateway enforcement | ~2 sessions | Phase 3A |
+| 1 | ~~Replace `better-sqlite3` with `node:sqlite` (built-in)~~ ✅ | done | DX-A |
+| 2 | ~~`pnpm dev` single-command start~~ ✅ | done | DX-B |
+| 3 | ~~`tessera init` wizard + `.env` support~~ ✅ | done | DX-C |
+| 4 | ~~GitHub Actions CI matrix~~ ✅ | done | DX-D |
+| 5 | ~~OTel spans in agent-loop~~ ✅ | done | Phase 1 |
+| 6 | ~~Token expiry + refresh endpoint~~ ✅ | done | Phase 2D |
+| 7 | ~~SSRF prevention + DNS rebinding defence~~ ✅ | done | Security |
+| 8 | ~~Tool output injection defence~~ ✅ | done | Security |
+| 9 | ~~Agent turn cap (`AGENT_MAX_TURNS_PER_SESSION`)~~ ✅ | done | Security |
+| 10 | ~~Control-UI chat panel~~ ✅ | done | UX |
+| 11 | ~~First bundled skill (`tessera/read-url`) + CLI tooling~~ ✅ | done | Skills |
+| 12 | ~~`tessera/web-search` skill + `tessera vault` CLI + credential injection pipeline~~ ✅ | done | Skills |
+| 13 | Security headers (`@fastify/helmet` on gateway) | ~0.5 sessions | Security |
+| 14 | OTel completion — gateway spans + OTLP export | ~1 session | Phase 1 |
+| 15 | Token refresh in Control-UI (retry before logout) | ~0.5 sessions | UX |
+| 16 | Hard quota enforcement per team | ~1 session | Phase 2A |
+| 17 | Webhook alerting (approvals, quota, injection) | ~1 session | Phase 2A |
+| 18 | Vault key rotation CLI command | ~1 session | Phase 2B |
+| 19 | Backup / restore CLI commands | ~2 sessions | Phase 2C |
+| 20 | RBAC roles in token + gateway enforcement | ~2 sessions | Phase 3A |
 
 ---
 

@@ -7,15 +7,18 @@ FROM base AS deps
 WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY packages/shared/package.json packages/shared/
+COPY packages/input-sanitizer/package.json packages/input-sanitizer/
 COPY packages/agent-runtime/package.json packages/agent-runtime/
 RUN pnpm install --frozen-lockfile --filter @tessera/agent-runtime... && \
     mkdir -p /app/packages/agent-runtime/node_modules
 
 FROM deps AS build
 COPY packages/shared/ packages/shared/
+COPY packages/input-sanitizer/ packages/input-sanitizer/
 COPY packages/agent-runtime/ packages/agent-runtime/
 COPY tsconfig.base.json ./
 RUN pnpm --filter @tessera/shared build && \
+    pnpm --filter @tessera/input-sanitizer build && \
     pnpm --filter @tessera/agent-runtime build
 
 FROM node:22-alpine AS runtime
@@ -26,10 +29,12 @@ RUN addgroup -g 10001 tessera && \
 
 COPY --from=build --chown=10001:10001 /app/packages/shared/dist/ packages/shared/dist/
 COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages/shared/
+COPY --from=build --chown=10001:10001 /app/packages/input-sanitizer/dist/ packages/input-sanitizer/dist/
+COPY --from=build --chown=10001:10001 /app/packages/input-sanitizer/package.json packages/input-sanitizer/
 COPY --from=build --chown=10001:10001 /app/packages/agent-runtime/dist/ packages/agent-runtime/dist/
 COPY --from=build --chown=10001:10001 /app/packages/agent-runtime/package.json packages/agent-runtime/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
-COPY --from=deps --chown=10001:10001 /app/packages/agent-runtime/node_modules/ packages/agent-runtime/node_modules/ 2>/dev/null || true
+COPY --from=deps --chown=10001:10001 /app/packages/agent-runtime/node_modules/ packages/agent-runtime/node_modules/
 
 USER 10001:10001
 
