@@ -92,11 +92,13 @@ const TOOL_IMAGES: Record<string, string> = {
   file_write: "tessera/file-write:latest",
 };
 
-/** Maps tool_id → { skill_id, skill_version, requires_approval } for skill-backed tools */
+/** Maps tool_id → route info for skill-backed tools */
 interface SkillToolRoute {
   skill_id: string;
   skill_version: string;
   requires_approval: boolean;
+  /** Vault credential names the skill needs — auto-injected before execution. */
+  credential_refs: string[];
 }
 
 export class AgentLoop {
@@ -281,12 +283,14 @@ export class AgentLoop {
                 input_schema: Record<string, unknown>;
                 requires_approval: boolean;
               }>;
+              permissions?: { credential_refs?: string[] };
             };
             for (const tool of manifest.tools ?? []) {
               skillRoutes.set(tool.tool_id, {
                 skill_id: summary.id,
                 skill_version: summary.version,
                 requires_approval: tool.requires_approval,
+                credential_refs: manifest.permissions?.credential_refs ?? [],
               });
               skillToolDefs.push({
                 id: tool.tool_id,
@@ -459,11 +463,34 @@ export class AgentLoop {
           // Execute the tool — route to skills engine or built-in sandbox
           let toolInputJson = JSON.stringify(input);
 
-          // Inject credentials — vault replaces __VAULT_REF:id__ placeholders
-          try {
-            toolInputJson = await this.vaultClient.injectCredential("", toolInputJson, "");
-          } catch {
-            // No credentials to inject — use input as-is
+          const skillRoute = skillRoutes.get(tool_id);
+
+          // Inject vault credentials for skill tools that declare credential_refs.
+          // For each ref name, resolve the vault UUID, enrich the input JSON with
+          // __VAULT_REF:uuid__ placeholders, then call injectCredential to substitute
+          // real values — the LLM and sandbox never see raw secret material.
+          if (skillRoute && skillRoute.credential_refs.length > 0) {
+            try {
+              const enriched = JSON.parse(toolInputJson) as Record<string, unknown>;
+              let firstRefId: string | null = null;
+              for (const refName of skillRoute.credential_refs) {
+                const refId = await this.vaultClient.getSecretRef("skill-creds", refName);
+                if (refId) {
+                  enriched[refName] = `__VAULT_REF:${refId}__`;
+                  if (!firstRefId) firstRefId = refId;
+                }
+              }
+              if (firstRefId) {
+                // Any valid refId lets the vault resolve ALL __VAULT_REF:*__ patterns
+                toolInputJson = await this.vaultClient.injectCredential(
+                  firstRefId, JSON.stringify(enriched), ""
+                );
+              } else {
+                toolInputJson = JSON.stringify(enriched);
+              }
+            } catch {
+              // Vault unreachable or credential not found — skill will fail at runtime
+            }
           }
 
           // URL safety check for http_request tools (SSRF + DNS rebinding prevention)
@@ -489,7 +516,6 @@ export class AgentLoop {
             }
           }
 
-          const skillRoute = skillRoutes.get(tool_id);
           const image = TOOL_IMAGES[tool_id] ?? `tessera/${tool_id}:latest`;
 
           this.auditClient.logEvent({

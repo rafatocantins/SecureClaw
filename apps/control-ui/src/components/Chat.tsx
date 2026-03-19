@@ -331,6 +331,7 @@ export function Chat({ secret }: { secret: string }) {
           if (entry.kind === "assistant") {
             return (
               <div key={entry.id} style={s.rowAssistant}>
+                <span style={s.agentLabel}>Tessera</span>
                 <div style={s.bubbleAssistant}>
                   <pre style={s.pre}>{entry.content}</pre>
                   {entry.streaming && <span style={s.cursor}>▋</span>}
@@ -340,17 +341,26 @@ export function Chat({ secret }: { secret: string }) {
           }
 
           if (entry.kind === "tool_call") {
+            const p = toolPalette(entry.tool_id);
             const statusColor =
-              entry.status === "approved" ? "#4caf50"
-              : entry.status === "denied" ? "#f44336"
-              : entry.status === "done" ? (entry.success === false ? "#ff9800" : "#4caf50")
-              : "#888";
+              entry.status === "approved" ? "#66bb6a"
+              : entry.status === "denied" ? "#ef5350"
+              : entry.status === "done" ? (entry.success === false ? "#ffa726" : "#66bb6a")
+              : "#666";
 
             return (
-              <div key={entry.id} style={s.toolCard}>
+              <div
+                key={entry.id}
+                style={{
+                  ...s.toolCard,
+                  background: p.bg,
+                  borderColor: p.accent + "55",
+                  borderLeftColor: p.accent,
+                }}
+              >
                 <div style={s.toolHeader}>
-                  <span style={s.toolIcon}>⚙</span>
-                  <span style={s.toolName}>{entry.tool_id}</span>
+                  <span style={s.toolIcon}>{p.icon}</span>
+                  <span style={{ ...s.toolName, color: p.label }}>{entry.tool_id}</span>
                   <span style={{ ...s.toolStatus, color: statusColor }}>
                     {entry.status === "done"
                       ? entry.success === false
@@ -367,16 +377,16 @@ export function Chat({ secret }: { secret: string }) {
                 {entry.requires_approval && entry.status === "pending" && (
                   <div style={s.approvalRow}>
                     <button
-                      style={{ ...s.approveBtn }}
+                      style={s.approveBtn}
                       onClick={() => sendApproval(entry.call_id, true)}
                     >
-                      Approve
+                      ✓ Approve
                     </button>
                     <button
-                      style={{ ...s.denyBtn }}
+                      style={s.denyBtn}
                       onClick={() => sendApproval(entry.call_id, false)}
                     >
-                      Deny
+                      ✗ Deny
                     </button>
                   </div>
                 )}
@@ -387,7 +397,7 @@ export function Chat({ secret }: { secret: string }) {
           if (entry.kind === "complete") {
             return (
               <div key={entry.id} style={s.receipt}>
-                ✓ &nbsp;
+                ✓&nbsp;
                 <span style={s.receiptVal}>${entry.cost_usd.toFixed(5)}</span>
                 <span style={s.receiptSep}>·</span>
                 <span style={s.receiptVal}>{fmtTokens(entry.input_tokens)} in</span>
@@ -400,7 +410,7 @@ export function Chat({ secret }: { secret: string }) {
           if (entry.kind === "error") {
             return (
               <div key={entry.id} style={s.errorCard}>
-                <span style={s.errorCode}>{entry.code}</span> {entry.message}
+                <span style={s.errorCode}>{entry.code}</span>{entry.message}
               </div>
             );
           }
@@ -451,6 +461,24 @@ function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+/**
+ * Per-tool colour palette: { accent (left border), bg, icon, label }
+ * Unknown / skill tools fall back to the "default" entry.
+ */
+const TOOL_PALETTE: Record<string, { accent: string; bg: string; icon: string; label: string }> = {
+  shell_exec:  { accent: "#ef5350", bg: "#1a0e0e", icon: "⚡", label: "#ef9a9a" },
+  http_request:{ accent: "#42a5f5", bg: "#0e1520", icon: "🌐", label: "#90caf9" },
+  file_read:   { accent: "#ffa726", bg: "#1a1408", icon: "📄", label: "#ffcc80" },
+  file_write:  { accent: "#ff7043", bg: "#1a1008", icon: "✏️", label: "#ffab91" },
+  read_url:    { accent: "#26c6da", bg: "#081a1c", icon: "🔗", label: "#80deea" },
+  web_search:  { accent: "#ab47bc", bg: "#150d1a", icon: "🔍", label: "#ce93d8" },
+  default:     { accent: "#66bb6a", bg: "#0e1a0f", icon: "⚙", label: "#a5d6a7" },
+};
+
+function toolPalette(tool_id: string) {
+  return TOOL_PALETTE[tool_id] ?? TOOL_PALETTE["default"]!;
 }
 
 const WS_COLOR: Record<WsStatus, string> = {
@@ -521,23 +549,34 @@ const s = {
     textAlign: "center" as const,
     marginTop: "60px",
   },
+  // User messages — right-aligned, green tint
   rowUser: { display: "flex", justifyContent: "flex-end" },
-  rowAssistant: { display: "flex", justifyContent: "flex-start" },
   bubbleUser: {
     maxWidth: "70%",
-    background: "#1a2e1a",
-    border: "1px solid #2a3e2a",
+    background: "#0d2210",
+    border: "1px solid #1e4020",
     borderRadius: "12px 12px 2px 12px",
     padding: "8px 12px",
     fontSize: "13px",
     lineHeight: "1.5",
     whiteSpace: "pre-wrap" as const,
-    color: "#d0f0d0",
+    color: "#c8f0c8",
+  },
+  // Assistant messages — left-aligned, indigo/blue-grey accent
+  rowAssistant: { display: "flex", flexDirection: "column" as const, alignItems: "flex-start", gap: "3px" },
+  agentLabel: {
+    fontSize: "10px",
+    color: "#7c83d6",
+    letterSpacing: "0.06em",
+    fontWeight: 700,
+    textTransform: "uppercase" as const,
+    paddingLeft: "4px",
   },
   bubbleAssistant: {
     maxWidth: "80%",
-    background: "#141414",
-    border: "1px solid #222",
+    background: "#12131e",
+    border: "1px solid #1e2040",
+    borderLeft: "3px solid #3f4ab0",
     borderRadius: "2px 12px 12px 12px",
     padding: "8px 12px",
     fontSize: "13px",
@@ -549,23 +588,25 @@ const s = {
     fontFamily: "inherit",
     whiteSpace: "pre-wrap" as const,
     wordBreak: "break-word" as const,
-    color: "#e0e0e0",
+    color: "#dde0ff",
   },
   cursor: {
     display: "inline-block",
     animation: "blink 1s step-end infinite",
-    color: "#4caf50",
+    color: "#7c83d6",
     fontSize: "14px",
     lineHeight: 1,
   },
+  // Tool cards — colour applied inline via toolPalette()
   toolCard: {
-    background: "#111",
-    border: "1px solid #1e2e1e",
-    borderLeft: "3px solid #2e4a2e",
-    borderRadius: "4px",
+    borderRadius: "6px",
     padding: "8px 12px",
     fontSize: "12px",
-    maxWidth: "60%",
+    maxWidth: "62%",
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderLeftWidth: "3px",
+    borderColor: "#1e2e1e", // overridden inline
   },
   toolHeader: {
     display: "flex",
@@ -573,8 +614,8 @@ const s = {
     gap: "6px",
     marginBottom: "4px",
   },
-  toolIcon: { color: "#555", fontSize: "11px" },
-  toolName: { color: "#aaa", fontFamily: "monospace", fontWeight: 600 },
+  toolIcon: { fontSize: "13px", lineHeight: 1 },
+  toolName: { fontFamily: "monospace", fontWeight: 700, fontSize: "12px" },
   toolStatus: { marginLeft: "auto", fontSize: "11px" },
   toolDesc: {
     color: "#666",
@@ -597,53 +638,59 @@ const s = {
     padding: "4px 12px",
     fontSize: "11px",
     cursor: "pointer",
-    fontWeight: 600,
+    fontWeight: 700,
   },
   denyBtn: {
-    background: "#2a1a1a",
-    color: "#f44336",
-    border: "1px solid #4a2a2a",
+    background: "#2a1010",
+    color: "#ef5350",
+    border: "1px solid #4a2020",
     borderRadius: "4px",
     padding: "4px 12px",
     fontSize: "11px",
     cursor: "pointer",
   },
+  // Cost receipt — subtle teal accent
   receipt: {
     fontSize: "11px",
-    color: "#555",
+    color: "#4a4a4a",
     display: "flex",
     alignItems: "center",
     gap: "4px",
-    paddingLeft: "4px",
+    paddingLeft: "6px",
+    borderLeft: "2px solid #1a3a38",
   },
-  receiptVal: { color: "#888" },
-  receiptSep: { color: "#333" },
+  receiptVal: { color: "#26a69a" },
+  receiptSep: { color: "#2a2a2a" },
+  // Error card — red
   errorCard: {
-    background: "#1a0000",
-    border: "1px solid #3a1a1a",
-    borderRadius: "4px",
+    background: "#140a0a",
+    border: "1px solid #3a1010",
+    borderLeft: "3px solid #ef5350",
+    borderRadius: "6px",
     padding: "8px 12px",
     fontSize: "12px",
-    color: "#f88",
+    color: "#ef9a9a",
   },
   errorCode: {
     fontFamily: "monospace",
     fontWeight: 700,
-    color: "#f44",
+    color: "#ef5350",
     marginRight: "6px",
   },
+  // Injection warning — amber
   warningCard: {
-    background: "#1a1500",
-    border: "1px solid #3a3000",
-    borderRadius: "4px",
+    background: "#141008",
+    border: "1px solid #3a2c00",
+    borderLeft: "3px solid #ffa726",
+    borderRadius: "6px",
     padding: "8px 12px",
     fontSize: "12px",
-    color: "#ff9800",
+    color: "#ffcc80",
   },
   warningExcerpt: {
     marginTop: "4px",
     fontSize: "11px",
-    color: "#856",
+    color: "#997755",
     fontFamily: "monospace",
     whiteSpace: "pre-wrap" as const,
   },
@@ -657,9 +704,9 @@ const s = {
   },
   textarea: {
     flex: 1,
-    background: "#141414",
-    color: "#e0e0e0",
-    border: "1px solid #2a2a2a",
+    background: "#111118",
+    color: "#e0e0f0",
+    border: "1px solid #2a2a40",
     borderRadius: "6px",
     padding: "8px 10px",
     fontSize: "13px",
@@ -669,14 +716,14 @@ const s = {
     outline: "none",
   },
   sendBtn: {
-    background: "#1e3a2f",
-    color: "#4caf50",
-    border: "1px solid #2e5a3f",
+    background: "#1e2860",
+    color: "#7c83d6",
+    border: "1px solid #2e3a80",
     borderRadius: "6px",
     padding: "8px 18px",
     fontSize: "13px",
     cursor: "pointer",
-    fontWeight: 600,
+    fontWeight: 700,
     flexShrink: 0,
     alignSelf: "flex-end" as const,
     height: "36px",
