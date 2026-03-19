@@ -1,0 +1,10 @@
+# Gitleaks configuration — allowlists for known-safe patterns
+
+[allowlist]
+  description = "Global allowlists"
+  paths = [
+    # Example/documentation files — contain placeholder values, never real secrets
+    ".env.example",
+    ".env.sample",
+    ".env.template",
+  ]

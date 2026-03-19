@@ -27,7 +27,9 @@ jobs:
 
       - name: Check for .env files committed
         run: |
-          if git ls-files | grep -E '(^|/)\.env(\.|$)'; then
+          # Match .env and dangerous variants (.env.local, .env.production, etc.)
+          # but NOT .env.example / .env.sample / .env.template (documentation files)
+          if git ls-files | grep -E '(^|/)\.env($|\.local$|\.production$|\.staging$|\.development$|\.test$)'; then
             echo "ERROR: .env file detected in repository"
             exit 1
           fi

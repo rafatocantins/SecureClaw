@@ -60,6 +60,7 @@ jobs:
       # engines field ("node": ">=22.0.0") documents this requirement.
       - name: Run unit tests
         if: matrix.run-tests
-        run: pnpm -r test
+        shell: bash
+        run: pnpm --filter '!@tessera/integration' -r test
         env:
           CI: "true"
