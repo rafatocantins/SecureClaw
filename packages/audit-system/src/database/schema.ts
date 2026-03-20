@@ -119,6 +119,29 @@ export function initSchema(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_cost_user_day    ON cost_ledger(user_id, recorded_at);
     CREATE INDEX IF NOT EXISTS idx_alerts_session   ON alerts(session_id);
     CREATE INDEX IF NOT EXISTS idx_alerts_ack       ON alerts(acknowledged);
+
+    -- =====================================================================
+    -- Team quotas — per-team spending limits with monthly reset
+    -- =====================================================================
+    CREATE TABLE IF NOT EXISTS team_quotas (
+      team_id TEXT PRIMARY KEY,
+      quota_usd REAL NOT NULL DEFAULT 0.0,
+      billing_period_start INTEGER NOT NULL,
+      billing_period_days INTEGER NOT NULL DEFAULT 30,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
+    -- Block DELETE on team_quotas (append-only)
+    CREATE TRIGGER IF NOT EXISTS team_quotas_no_delete
+      BEFORE DELETE ON team_quotas
+      BEGIN
+        SELECT RAISE(ABORT, 'team_quotas is append-only: DELETE not permitted');
+      END;
+
+    -- Index on updated_at for efficient quota lookups
+    CREATE INDEX IF NOT EXISTS idx_team_quotas_updated
+      ON team_quotas(updated_at);
   `);
 
   // Migration: add team_id column (idempotent — SQLite ALTER ADD COLUMN is safe to retry)

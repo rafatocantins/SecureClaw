@@ -293,3 +293,72 @@ describe("AuditService — getComplianceReport", () => {
     expect(art15.evidence["sandbox_mode"]).toBe("gVisor");
   });
 });
+
+// ── Team quotas ──────────────────────────────────────────────────────────────
+
+describe("AuditService — team quotas", () => {
+  it("getTeamQuota returns unconfigured (at_capacity=true) when no quota set", () => {
+    const svc = makeSvc();
+    svc.recordCost({
+      session_id: "sess-1",
+      user_id: "acme/alice",
+      provider: "anthropic",
+      model: "claude-3-5-haiku-20241022",
+      input_tokens: 100,
+      output_tokens: 50,
+      cost_usd: 10.0,
+    });
+    const quota = svc.getTeamQuota("acme");
+    expect(quota.quota_usd).toBe(0);
+    expect(quota.at_capacity).toBe(true);
+  });
+
+  it("setTeamQuota creates a new quota row", () => {
+    const svc = makeSvc();
+    svc.setTeamQuota("acme", 500.0);
+    const quota = svc.getTeamQuota("acme");
+    expect(quota.quota_usd).toBe(500.0);
+    expect(quota.current_spend_usd).toBe(0);
+    expect(quota.remaining_usd).toBe(500.0);
+    expect(quota.at_capacity).toBe(false);
+  });
+
+  it("getTeamQuota calculates spend within billing period", () => {
+    const svc = makeSvc();
+    svc.setTeamQuota("acme", 500.0);
+
+    // Record cost
+    svc.recordCost({
+      session_id: "sess-1",
+      user_id: "acme/alice",
+      provider: "anthropic",
+      model: "claude-3-5-haiku-20241022",
+      input_tokens: 100,
+      output_tokens: 50,
+      cost_usd: 100.0,
+    });
+
+    const quota = svc.getTeamQuota("acme");
+    expect(quota.current_spend_usd).toBe(100.0);
+    expect(quota.remaining_usd).toBe(400.0);
+    expect(quota.at_capacity).toBe(false);
+  });
+
+  it("checkQuotaExceeded returns exceeded=true when over quota", () => {
+    const svc = makeSvc();
+    svc.setTeamQuota("acme", 100.0);
+    svc.recordCost({
+      session_id: "sess-1",
+      user_id: "acme/alice",
+      provider: "anthropic",
+      model: "claude-3-5-haiku-20241022",
+      input_tokens: 100,
+      output_tokens: 50,
+      cost_usd: 150.0,
+    });
+    const result = svc.checkQuotaExceeded("acme");
+    expect(result.exceeded).toBe(true);
+    expect(result.spent_usd).toBe(150.0);
+    expect(result.quota_usd).toBe(100.0);
+  });
+});
