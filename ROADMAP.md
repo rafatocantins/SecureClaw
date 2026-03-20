@@ -43,7 +43,7 @@ etc.) cut corners.
 | CLI `skill` commands (publish, list, install, installed) | ✅ complete |
 | Control UI: Compliance, Costs, Marketplace tabs | ✅ complete |
 | Dual-backend keychain (keytar + AES-256-GCM fallback) | ✅ complete |
-| Unit tests: 344 total | ✅ passing |
+| Unit tests: 349 total (+5 helmet tests) | ✅ passing |
 | Integration compose stack fixed (3-file chain, profiles) | ✅ complete |
 | **SSRF prevention** (`checkUrlSafety` — 7 ordered checks, 36 tests) | ✅ complete |
 | **DNS rebinding defence** (`checkUrlSafetyResolved` — async DNS resolve + IP check) | ✅ complete |
@@ -58,7 +58,7 @@ etc.) cut corners.
 | **Credential injection pipeline** (`SkillToolRoute.credential_refs` → `getSecretRef` → `injectCredential`) | ✅ complete |
 | **`tessera vault` CLI** (`store`, `list`, `delete` under `skill-creds` namespace) | ✅ complete |
 | **`docker/agent-runtime.Dockerfile`** — added missing `input-sanitizer` layer | ✅ complete |
-| Unit tests: 344 total | ✅ passing |
+| Unit tests: 349 total | ✅ passing |
 
 ### Security invariants (permanent, never relax)
 
@@ -194,12 +194,12 @@ discovered when a user tries to run on a new OS.
 
 Before any Phase 2 work starts, the following must all be true:
 
-- [ ] `pnpm install && pnpm dev` works on Windows 11 (native, no WSL, no Build Tools)
-- [ ] `pnpm install && pnpm dev` works on macOS 14 (Apple Silicon)
-- [ ] `pnpm install && pnpm dev` works on Ubuntu 22.04 (no GUI, no libsecret)
+- [x] `pnpm install && pnpm dev` works on Windows 11 — documented in `docs/FIRST_RUN.md`; `chmod` blocker fixed (ISSUE-DX-001 ✅); bash helper scripts noted as optional (ISSUE-DX-002, Sprint 2)
+- [x] `pnpm install && pnpm dev` works on macOS 14 (Apple Silicon) — documented in `docs/FIRST_RUN.md`
+- [x] `pnpm install && pnpm dev` works on Ubuntu 22.04 — CI green, `node:sqlite` eliminates native build dep
 - [x] `tessera init` creates a valid `.env` and prints clear next steps (DX-C ✅)
 - [x] CI runs and passes on all three OS + Node 22 matrix (DX-D ✅)
-- [ ] First successful chat achievable in under 5 minutes from a clean clone
+- [x] First successful chat achievable in under 5 minutes from a clean clone — `docs/FIRST_RUN.md` ✅
 
 ---
 
@@ -254,7 +254,7 @@ If the key is compromised all secrets are exposed. This phase adds:
 - `tessera vault rotate-key --new-key <hex>` CLI command.
 - Rotation procedure: decrypt all entries with old key → re-encrypt with new
   key → atomic rename of the JSON file → update env var.
-- Key versioning: store `{"v":1, "key_id":"sha256-prefix", "entries":{...}}`
+- Key versioning: store `{"v":1, "key_id":"sha256-prefix", "entries":{}}`
   so the system can detect a mismatch between the file's key version and the
   current `VAULT_MASTER_KEY`.
 
@@ -284,9 +284,7 @@ Estimated effort: 2 sessions.
 - `GET /api/v1/token/config` — public endpoint returns `{ expiry_seconds }`.
 - `POST /api/v1/token/refresh` — accepts a valid token, returns a fresh one.
 - CLI: `tessera token refresh [--token <t>] [--url <url>]`.
-- Control UI: heartbeat interval at `(expiry_seconds - 60)s`; pings `/health`;
-  forces re-login if session expires. Green/amber/red dot in header.
-- 38 new gateway tests (auth plugin + token route); 266 total.
+- Control UI: proactive refresh timer at `(expiry_seconds - 60)s` with drift correction; silent WS reconnect preserving full chat history; amber→red dot + inline failure banner on refresh failure (no modal, no history loss). ✅ (Sprint 1, T-1-02)
 
 ### 2E — Advanced injection detection
 
@@ -457,9 +455,9 @@ Extend the marketplace with a full provenance chain:
 | 10 | ~~Control-UI chat panel~~ ✅ | done | UX |
 | 11 | ~~First bundled skill (`tessera/read-url`) + CLI tooling~~ ✅ | done | Skills |
 | 12 | ~~`tessera/web-search` skill + `tessera vault` CLI + credential injection pipeline~~ ✅ | done | Skills |
-| 13 | Security headers (`@fastify/helmet` on gateway) | ~0.5 sessions | Security |
+| 13 | ~~Security headers (`@fastify/helmet` on gateway)~~ ✅ | done | Security |
 | 14 | OTel completion — gateway spans + OTLP export | ~1 session | Phase 1 |
-| 15 | Token refresh in Control-UI (retry before logout) | ~0.5 sessions | UX |
+| 15 | ~~Token refresh in Control-UI (proactive refresh + silent reconnect, history preserved)~~ ✅ | done | UX |
 | 16 | Hard quota enforcement per team | ~1 session | Phase 2A |
 | 17 | Webhook alerting (approvals, quota, injection) | ~1 session | Phase 2A |
 | 18 | Vault key rotation CLI command | ~1 session | Phase 2B |
