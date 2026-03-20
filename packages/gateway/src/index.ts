@@ -11,6 +11,9 @@ if (isMain) {
   const { loadDotenv } = await import("@tessera/shared");
   loadDotenv();
 
+  const { initTelemetry, shutdownTelemetry } = await import("./telemetry.js");
+  initTelemetry();
+
   const { AgentGrpcClient: Client } = await import("./grpc/agent.client.js");
   const { setGatewaySecret: setSecret, generateGatewayToken: genToken } = await import("./plugins/auth.plugin.js");
   const { startServer: start } = await import("./server.js");
@@ -42,4 +45,12 @@ if (isMain) {
   const devToken = genToken("dev-user", hmacSecret);
   process.stdout.write(`[gateway] Dev token (for testing): ${devToken}\n`);
   process.stdout.write(`[gateway] Listening on http://${config.host}:${config.port}\n`);
+
+  // Graceful shutdown: flush OTel spans before exit
+  const shutdown = (signal: string): void => {
+    process.stdout.write(`[gateway] Received ${signal} — shutting down\n`);
+    shutdownTelemetry().then(() => process.exit(0)).catch(() => process.exit(1));
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
