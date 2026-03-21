@@ -230,7 +230,7 @@ unlimited money. This phase adds:
   `PUT /api/v1/costs/teams/:teamId/quota` (admin token required).
 - Control UI: quota bar overlay on cost bars (red = over 80%).
 
-**Webhook alerting** ⏳ IN PROGRESS (T-2-01B)
+**Webhook alerting** ✅ COMPLETE (T-2-01B, 410 tests)
 
 New `@tessera/alerting` package (or module in gateway) that fires HTTP
 webhooks on configurable events:
