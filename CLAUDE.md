@@ -82,6 +82,85 @@ security-review at the same time).
 
 ---
 
+## Design System & UI/Frontend Work
+
+### When to use design-lead
+
+Use the **`design-lead`** agent for:
+- Defining UX flows and navigation architecture
+- Creating component interaction patterns
+- Establishing accessibility requirements (WCAG 2.1 AA+)
+- Visual design direction and design tokens
+- Component library architecture
+- Design system strategy and documentation
+- UX critique and refinement of existing interfaces
+
+### Available UI tools & resources
+
+| Tool | Use case |
+|---|---|
+| `mcp__shadcn__*` | Query shadcn/ui registry, view component source, get examples |
+| `mcp__magic__21st_magic_component_builder` | Build new components with AI design inspiration |
+| `mcp__magic__21st_magic_component_refiner` | Refine/redesign existing UI elements |
+| `mcp__reactbits__*` | Search ReactBits component library (animations, patterns, effects) |
+
+### Design system checklist
+
+When establishing or extending the design system:
+
+1. **Design tokens** — Define color palette, typography scales, spacing (8px grid), shadows, borders
+   - Store in `apps/control-ui/src/theme/` or as CSS variables
+   - Consume via Tailwind config (`tailwind.config.ts`)
+
+2. **Component patterns** — Document in Storybook or `DESIGN_SYSTEM.md`
+   - Atomic structure (atoms → molecules → organisms)
+   - Props API and usage examples
+   - Accessibility notes (ARIA roles, keyboard nav, focus management)
+
+3. **Accessibility baseline (WCAG 2.1 AA)**
+   - Color contrast ≥ 4.5:1 for body text (WCAG AA)
+   - ≥ 3:1 for UI components
+   - Keyboard navigation: Tab order, focus indicators (outline-2 offset-2)
+   - Semantic HTML: `<button>`, `<input>`, `<label>` with `for` attribute
+   - ARIA live regions for dynamic content
+   - Screen reader testing with axe DevTools or similar
+   - Test with keyboard only (no mouse)
+
+4. **SEO considerations** (for public pages)
+   - Semantic HTML (`<header>`, `<nav>`, `<main>`, `<article>`, `<footer>`)
+   - Heading hierarchy (h1 → h2 → h3, no gaps)
+   - Image `alt` text (descriptive, not "image of X")
+   - Metadata: `<title>`, `<meta description>`, Open Graph tags
+   - Structured data (schema.org) if applicable
+
+5. **Responsive design**
+   - Mobile-first approach
+   - Tailwind breakpoints: `sm:`, `md:`, `lg:`, `xl:`, `2xl:`
+   - Test at 320px (mobile), 768px (tablet), 1024px+ (desktop)
+   - Touch targets ≥ 44px × 44px
+
+6. **Dark mode** (if applicable)
+   - Use Tailwind's `dark:` prefix
+   - Define color pairs in design tokens
+   - Test contrast in both light and dark
+
+### Frontend architecture
+
+- **React** 18+ with TypeScript strict mode
+- **Vite** for bundling (dev server at 5173)
+- **Tailwind CSS** for styling
+- **shadcn/ui** for component library (pre-built, composable)
+- **WebSocket** for real-time chat/streaming (see `apps/control-ui/src/components/Chat.tsx`)
+
+### Design-lead → frontend-dev handoff
+
+1. Design-lead creates flow documents + component specs + accessibility requirements
+2. Add to `apps/control-ui/DESIGN_FLOWS.md` or similar
+3. Frontend-lead reviews and creates task briefs for frontend-dev workers
+4. Frontend-dev implements using shadcn, Tailwind, and existing patterns
+
+---
+
 ## Package structure quick reference
 
 | Path | Package | Port |

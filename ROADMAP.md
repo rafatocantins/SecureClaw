@@ -215,7 +215,7 @@ All Phase 1 items complete. ✅
 Target: production-ready for single-org self-hosted deployment.
 Prerequisite: Phase 1 OTel spans complete.
 
-### 2A — Usage quotas & alerting (1/2 items complete, 1 in progress)
+### 2A — Usage quotas & alerting ✅ COMPLETE (2/2 items)
 
 **Hard per-team spending caps** ✅ COMPLETE
 
