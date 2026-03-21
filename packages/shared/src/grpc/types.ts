@@ -303,6 +303,38 @@ export interface GrpcGetTeamCostSummaryResponse {
   grand_total_usd: number;
 }
 
+// Team quotas
+export interface GrpcGetTeamQuotaRequest {
+  team_id: string;
+}
+
+export interface GrpcGetTeamQuotaResponse {
+  quota_usd: number;
+  current_spend_usd: number;
+  remaining_usd: number;
+  days_until_reset: number;
+  at_capacity: boolean;
+}
+
+export interface GrpcSetTeamQuotaRequest {
+  team_id: string;
+  quota_usd: number;
+}
+
+export interface GrpcSetTeamQuotaResponse {
+  success: boolean;
+}
+
+export interface GrpcCheckQuotaExceededRequest {
+  team_id: string;
+}
+
+export interface GrpcCheckQuotaExceededResponse {
+  exceeded: boolean;
+  spent_usd: number;
+  quota_usd: number;
+}
+
 // ── Sandbox Service ───────────────────────────────────────────────────────
 
 export interface GrpcCheckRuntimeRequest {}

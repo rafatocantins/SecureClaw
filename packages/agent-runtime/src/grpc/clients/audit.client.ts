@@ -9,6 +9,10 @@ import type {
   GrpcGetCostSummaryRequest,
   GrpcGetCostSummaryResponse,
   GrpcRecordCostRequest,
+  GrpcGetTeamQuotaRequest,
+  GrpcGetTeamQuotaResponse,
+  GrpcCheckQuotaExceededRequest,
+  GrpcCheckQuotaExceededResponse,
 } from "@tessera/shared";
 
 export interface CostSummary {
@@ -97,6 +101,32 @@ export class AuditGrpcClient {
       if (err) {
         process.stderr.write(`[audit-client] recordCost failed: ${err.message}\n`);
       }
+    });
+  }
+
+  getTeamQuota(teamId: string): Promise<GrpcGetTeamQuotaResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcGetTeamQuotaRequest = { team_id: teamId };
+      this.client.GetTeamQuota(req, (err: grpc.ServiceError | null, res: GrpcGetTeamQuotaResponse) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(res);
+      });
+    });
+  }
+
+  checkQuotaExceeded(teamId: string): Promise<GrpcCheckQuotaExceededResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcCheckQuotaExceededRequest = { team_id: teamId };
+      this.client.CheckQuotaExceeded(req, (err: grpc.ServiceError | null, res: GrpcCheckQuotaExceededResponse) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(res);
+      });
     });
   }
 
