@@ -215,9 +215,9 @@ All Phase 1 items complete. ✅
 Target: production-ready for single-org self-hosted deployment.
 Prerequisite: Phase 1 OTel spans complete.
 
-### 2A — Usage quotas & alerting
+### 2A — Usage quotas & alerting ✅ (1/2 items complete)
 
-**Hard per-team spending caps**
+**Hard per-team spending caps** ✅ COMPLETE
 
 Currently costs are tracked and reported but never enforced. A team can spend
 unlimited money. This phase adds:
@@ -461,7 +461,7 @@ Extend the marketplace with a full provenance chain:
 | 13 | ~~Security headers (`@fastify/helmet` on gateway)~~ ✅ | done | Security |
 | 14 | ~~OTel completion — gateway spans + OTLP export~~ ✅ | done | Phase 1 |
 | 15 | ~~Token refresh in Control-UI (proactive refresh + silent reconnect, history preserved)~~ ✅ | done | UX |
-| 16 | Hard quota enforcement per team | ~1 session | Phase 2A |
+| 16 | ~~Hard quota enforcement per team~~ ✅ | done | Phase 2A |
 | 17 | Webhook alerting (approvals, quota, injection) | ~1 session | Phase 2A |
 | 18 | Vault key rotation CLI command | ~1 session | Phase 2B |
 | 19 | Backup / restore CLI commands | ~2 sessions | Phase 2C |
