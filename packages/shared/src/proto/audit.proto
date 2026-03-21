@@ -22,6 +22,12 @@ service AuditService {
   rpc GetComplianceReport(GetComplianceReportRequest) returns (ComplianceReportResponse);
   // Team-based cost aggregation
   rpc GetTeamCostSummary(GetTeamCostSummaryRequest) returns (GetTeamCostSummaryResponse);
+  // Get team quota status
+  rpc GetTeamQuota(GetTeamQuotaRequest) returns (GetTeamQuotaResponse);
+  // Set team quota (admin only)
+  rpc SetTeamQuota(SetTeamQuotaRequest) returns (SetTeamQuotaResponse);
+  // Check if team has exceeded quota
+  rpc CheckQuotaExceeded(CheckQuotaExceededRequest) returns (CheckQuotaExceededResponse);
 }
 
 enum EventType {
@@ -181,4 +187,37 @@ message TeamCostEntry {
 message GetTeamCostSummaryResponse {
   repeated TeamCostEntry teams = 1;
   double grand_total_usd       = 2;
+}
+
+// ── Team Quotas ───────────────────────────────────────────────────────
+
+message GetTeamQuotaRequest {
+  string team_id = 1;
+}
+
+message GetTeamQuotaResponse {
+  double quota_usd = 1;
+  double current_spend_usd = 2;
+  double remaining_usd = 3;
+  int32 days_until_reset = 4;
+  bool at_capacity = 5;
+}
+
+message SetTeamQuotaRequest {
+  string team_id = 1;
+  double quota_usd = 2;
+}
+
+message SetTeamQuotaResponse {
+  bool success = 1;
+}
+
+message CheckQuotaExceededRequest {
+  string team_id = 1;
+}
+
+message CheckQuotaExceededResponse {
+  bool exceeded = 1;
+  double spent_usd = 2;
+  double quota_usd = 3;
 }

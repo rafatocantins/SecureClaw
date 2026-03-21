@@ -23,6 +23,12 @@ import type {
   GrpcComplianceReportResponse,
   GrpcGetTeamCostSummaryRequest,
   GrpcGetTeamCostSummaryResponse,
+  GrpcGetTeamQuotaRequest,
+  GrpcGetTeamQuotaResponse,
+  GrpcSetTeamQuotaRequest,
+  GrpcSetTeamQuotaResponse,
+  GrpcCheckQuotaExceededRequest,
+  GrpcCheckQuotaExceededResponse,
 } from "@tessera/shared";
 import type { AuditSeverity } from "@tessera/shared";
 
@@ -232,6 +238,55 @@ export function makeAuditImpl(auditSvc: AuditService) {
       } catch (err) {
         process.stderr.write(`[audit-grpc] getTeamCostSummary error: ${String(err)}\n`);
         callback(null, { teams: [], grand_total_usd: 0 });
+      }
+    },
+
+    GetTeamQuota(
+      call: UnaryCall<GrpcGetTeamQuotaRequest, GrpcGetTeamQuotaResponse>,
+      callback: Callback<GrpcGetTeamQuotaResponse>
+    ): void {
+      try {
+        const quota = auditSvc.getTeamQuota(call.request.team_id);
+        callback(null, quota);
+      } catch (err) {
+        process.stderr.write(`[audit-grpc] getTeamQuota error: ${String(err)}\n`);
+        callback(null, {
+          quota_usd: 0,
+          current_spend_usd: 0,
+          remaining_usd: 0,
+          days_until_reset: 0,
+          at_capacity: true,
+        });
+      }
+    },
+
+    SetTeamQuota(
+      call: UnaryCall<GrpcSetTeamQuotaRequest, GrpcSetTeamQuotaResponse>,
+      callback: Callback<GrpcSetTeamQuotaResponse>
+    ): void {
+      try {
+        auditSvc.setTeamQuota(call.request.team_id, call.request.quota_usd);
+        callback(null, { success: true });
+      } catch (err) {
+        process.stderr.write(`[audit-grpc] setTeamQuota error: ${String(err)}\n`);
+        callback(null, { success: false });
+      }
+    },
+
+    CheckQuotaExceeded(
+      call: UnaryCall<GrpcCheckQuotaExceededRequest, GrpcCheckQuotaExceededResponse>,
+      callback: Callback<GrpcCheckQuotaExceededResponse>
+    ): void {
+      try {
+        const result = auditSvc.checkQuotaExceeded(call.request.team_id);
+        callback(null, result);
+      } catch (err) {
+        process.stderr.write(`[audit-grpc] checkQuotaExceeded error: ${String(err)}\n`);
+        callback(null, {
+          exceeded: false,
+          spent_usd: 0,
+          quota_usd: 0,
+        });
       }
     },
   };
