@@ -215,7 +215,7 @@ All Phase 1 items complete. ✅
 Target: production-ready for single-org self-hosted deployment.
 Prerequisite: Phase 1 OTel spans complete.
 
-### 2A — Usage quotas & alerting ✅ (1/2 items complete)
+### 2A — Usage quotas & alerting (1/2 items complete, 1 in progress)
 
 **Hard per-team spending caps** ✅ COMPLETE
 
@@ -230,7 +230,7 @@ unlimited money. This phase adds:
   `PUT /api/v1/costs/teams/:teamId/quota` (admin token required).
 - Control UI: quota bar overlay on cost bars (red = over 80%).
 
-**Webhook alerting**
+**Webhook alerting** ⏳ IN PROGRESS (T-2-01B)
 
 New `@tessera/alerting` package (or module in gateway) that fires HTTP
 webhooks on configurable events:
@@ -462,7 +462,7 @@ Extend the marketplace with a full provenance chain:
 | 14 | ~~OTel completion — gateway spans + OTLP export~~ ✅ | done | Phase 1 |
 | 15 | ~~Token refresh in Control-UI (proactive refresh + silent reconnect, history preserved)~~ ✅ | done | UX |
 | 16 | ~~Hard quota enforcement per team~~ ✅ | done | Phase 2A |
-| 17 | Webhook alerting (approvals, quota, injection) | ~1 session | Phase 2A |
+| 17 | Webhook alerting (approvals, quota, injection) ⏳ | ~1 session | Phase 2A |
 | 18 | Vault key rotation CLI command | ~1 session | Phase 2B |
 | 19 | Backup / restore CLI commands | ~2 sessions | Phase 2C |
 | 20 | RBAC roles in token + gateway enforcement | ~2 sessions | Phase 3A |
