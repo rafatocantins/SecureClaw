@@ -8,13 +8,11 @@
  * - Token-in-URL detection on every request
  * - All sensitive headers redacted from logs
  */
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import fastifyCors from "@fastify/cors";
 import fastifyHelmet from "@fastify/helmet";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
-import { trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
-import type { Span } from "@opentelemetry/api";
 import type { GatewayConfig } from "@tessera/shared";
 import { blockTokenInQueryParams } from "./plugins/auth.plugin.js";
 import { healthRoute } from "./routes/health.route.js";
@@ -32,6 +30,7 @@ import type { AgentGrpcClient } from "./grpc/agent.client.js";
 import { AuditGrpcClient } from "./grpc/audit.client.js";
 import { VaultGrpcClient } from "./grpc/vault.client.js";
 import { SkillsGrpcClient } from "./grpc/skills.client.js";
+import { registerOtelHooks } from "./telemetry.js";
 
 export async function buildServer(config: GatewayConfig, agentClient: AgentGrpcClient): Promise<FastifyInstance> {
   const app = Fastify({
@@ -110,37 +109,9 @@ export async function buildServer(config: GatewayConfig, agentClient: AgentGrpcC
   // Global security hook: block tokens in query params on ALL routes
   app.addHook("onRequest", blockTokenInQueryParams);
 
-  // OTel: create a SERVER span for each HTTP request.
-  // SECURITY: http.url is set to the path only (never the full URL) —
-  // the WS chat upgrade uses ?token= which must never appear in traces.
-  app.addHook("onRequest", async (req, _reply) => {
-    const tracer = trace.getTracer("tessera-gateway", "0.1.0");
-    // Use the route template (e.g. /api/v1/chat/:sessionId) not the actual URL
-    // to keep cardinality low and prevent PII/token leakage from path params.
-    const routeTemplate = req.routeOptions.url ?? req.url.split("?")[0];
-    const span = tracer.startSpan(`HTTP ${req.method} ${routeTemplate}`, {
-      kind: SpanKind.SERVER,
-    });
-    // Attach span to request for retrieval in onResponse
-    (req as FastifyRequest & { _otelSpan?: Span })._otelSpan = span;
-  });
-
-  app.addHook("onResponse", async (req, reply) => {
-    const span = (req as FastifyRequest & { _otelSpan?: Span })._otelSpan;
-    if (!span) return;
-    // SECURITY: path only — never include query string (?token= leak prevention)
-    const pathOnly = req.url.split("?")[0];
-    span.setAttributes({
-      "http.method": req.method,
-      "http.route": req.routeOptions.url ?? pathOnly,
-      "http.status_code": reply.statusCode,
-      "http.url": pathOnly,
-    });
-    if (reply.statusCode >= 500) {
-      span.setStatus({ code: SpanStatusCode.ERROR });
-    }
-    span.end();
-  });
+  // OTel: register onRequest/onResponse hooks that create a SERVER span per request.
+  // SECURITY: http.url is set to the path only — see telemetry.ts for details.
+  registerOtelHooks(app);
 
   // Decorate Fastify instance with the gRPC client so routes can access it
   app.decorate("agentClient", agentClient);

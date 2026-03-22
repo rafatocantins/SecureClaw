@@ -11,6 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { registerOtelHooks } from "./telemetry.js";
 
 // ── Span mock helpers ────────────────────────────────────────────────────────
 
@@ -57,41 +58,11 @@ vi.mock("@opentelemetry/api", async (importOriginal) => {
 
 // ── Minimal Fastify app with OTel hooks ──────────────────────────────────────
 
-async function buildTracedApp() {
-  // Import after mock is set up
-  const { trace, SpanKind: SK, SpanStatusCode: SSC } = await import("@opentelemetry/api");
-  // Avoid unused import warning — these are used inside the closures below
-  void SK; void SSC;
-
+function buildTracedApp() {
   const app = Fastify({ logger: false });
 
-  // Replicate the exact hooks from server.ts
-  app.addHook("onRequest", async (req, _reply) => {
-    const tracer = trace.getTracer("tessera-gateway", "0.1.0");
-    const routeTemplate = req.routeOptions.url ?? req.url.split("?")[0];
-    const span = tracer.startSpan(`HTTP ${req.method} ${routeTemplate}`, {
-      kind: SpanKind.SERVER,
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- attaching span to request
-    (req as any)._otelSpan = span;
-  });
-
-  app.addHook("onResponse", async (req, reply) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading span from request
-    const span = (req as any)._otelSpan as MockSpan | undefined;
-    if (!span) return;
-    const pathOnly = req.url.split("?")[0];
-    span.setAttributes({
-      "http.method": req.method,
-      "http.route": req.routeOptions.url ?? pathOnly,
-      "http.status_code": reply.statusCode,
-      "http.url": pathOnly,
-    });
-    if (reply.statusCode >= 500) {
-      span.setStatus({ code: SpanStatusCode.ERROR });
-    }
-    span.end();
-  });
+  // Use the real production hooks (imported from telemetry.ts)
+  registerOtelHooks(app);
 
   // Register a simple test route
   app.get("/test", async (_req, reply) => {
