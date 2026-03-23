@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# REQUIRES: bash (not sh-compatible). Windows users: run via Git Bash or WSL2.
 # start-dev.sh — One-command local development startup for Tessera
 #
 # Usage:
@@ -121,7 +122,7 @@ header "3/5  mTLS certificates"
 if [ "${GRPC_TLS:-false}" = "true" ]; then
   if [ ! -d certs ] || [ -z "$(ls -A certs/*.crt 2>/dev/null)" ]; then
     info "Generating mTLS certificates..."
-    bash scripts/gen-certs.sh
+    node scripts/gen-certs.mjs
     ok "Certificates generated in ./certs/"
   else
     ok "Certificates already exist in ./certs/"

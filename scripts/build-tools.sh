@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# REQUIRES: bash (not sh-compatible). Windows users: run via Git Bash or WSL2.
 # build-tools.sh — Build all Tessera built-in tool Docker images.
 #
 # Usage:
