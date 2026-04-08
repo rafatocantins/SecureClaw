@@ -11,7 +11,8 @@ import { setGatewaySecret, generateGatewayToken } from "../plugins/auth.plugin.j
 import { vaultAdminRoute } from "./vault-admin.route.js";
 
 const SECRET = "test-vault-admin-secret-abc123";
-const VALID_TOKEN = () => generateGatewayToken("admin-user", SECRET);
+const VALID_TOKEN = () => generateGatewayToken("admin-user", SECRET, "admin");
+const USER_TOKEN = () => generateGatewayToken("regular-user", SECRET, "user");
 
 // Mock vault client
 function makeMockVaultClient(overrides: {
@@ -213,5 +214,19 @@ describe("POST /api/v1/vault/rotate-key", () => {
         severity: "ERROR",
       }),
     );
+  });
+
+  it("403: user-role token is forbidden on rotate-key", async () => {
+    const { app } = await buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/vault/rotate-key",
+      headers: { Authorization: `Bearer ${USER_TOKEN()}` },
+      payload: { old_master_key: "old", new_master_key: "new" },
+    });
+
+    expect(res.statusCode).toBe(403);
+    const body = res.json<{ error: string }>();
+    expect(body.error).toBe("Forbidden");
   });
 });

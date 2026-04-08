@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { verifyToken } from "../plugins/auth.plugin.js";
+import { verifyToken, requireRole } from "../plugins/auth.plugin.js";
 import type { VaultGrpcClient } from "../grpc/vault.client.js";
 import type { AuditGrpcClient } from "../grpc/audit.client.js";
 
@@ -36,7 +36,9 @@ export async function vaultAdminRoute(
 ): Promise<void> {
   fastify.addHook("preHandler", verifyToken);
 
-  // POST /rotate-key — Re-encrypt all vault entries with a new master key
+  // POST /rotate-key — Re-encrypt all vault entries with a new master key (admin only)
+  fastify.addHook("preHandler", requireRole("admin"));
+
   fastify.post(
     "/rotate-key",
     {

@@ -20,7 +20,7 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { verifyToken } from "../plugins/auth.plugin.js";
+import { verifyToken, requireRole } from "../plugins/auth.plugin.js";
 import type { VaultGrpcClient } from "../grpc/vault.client.js";
 import type { AuditGrpcClient } from "../grpc/audit.client.js";
 import type { SkillsGrpcClient } from "../grpc/skills.client.js";
@@ -155,93 +155,97 @@ export async function backupRoute(
     },
   );
 
-  // POST /api/v1/backup/restore — restore all services from an archive
-  fastify.post(
-    "/restore",
-    {
-      config: {
-        rateLimit: { max: 5, timeWindow: "1 minute" },
-        // Allow large bodies for this route; bodyLimit set per-route via addContentTypeParser
+  // POST /api/v1/backup/restore — admin-only; wrapped in a scoped plugin for role guard
+  await fastify.register(async (adminScope) => {
+    adminScope.addHook("preHandler", requireRole("admin"));
+
+    adminScope.post(
+      "/restore",
+      {
+        config: {
+          rateLimit: { max: 5, timeWindow: "1 minute" },
+          // Allow large bodies for this route; bodyLimit set per-route via addContentTypeParser
+        },
+        bodyLimit: MAX_RESTORE_BYTES,
       },
-      bodyLimit: MAX_RESTORE_BYTES,
-    },
-    async (req: FastifyRequest<{ Body: Buffer }>, reply) => {
-      const rawBody = req.body;
+      async (req: FastifyRequest<{ Body: Buffer }>, reply) => {
+        const rawBody = req.body;
 
-      if (!rawBody || rawBody.length === 0) {
-        await reply.code(400).send({ error: "validation_error", message: "Empty request body" });
-        return;
-      }
-
-      let envelope: BackupEnvelope;
-      try {
-        const decompressed = gunzipSync(rawBody);
-        const parsed: unknown = JSON.parse(decompressed.toString("utf-8"));
-        const result = BackupEnvelopeSchema.safeParse(parsed);
-        if (!result.success) {
-          await reply.code(400).send({ error: "validation_error", issues: result.error.issues });
+        if (!rawBody || rawBody.length === 0) {
+          await reply.code(400).send({ error: "validation_error", message: "Empty request body" });
           return;
         }
-        envelope = result.data;
-      } catch (err) {
-        await reply.code(400).send({ error: "invalid_backup", message: "Could not decompress or parse backup archive" });
-        return;
-      }
 
-      const results: Record<string, { success: boolean; restart_required: boolean; error?: string }> = {};
-
-      // Restore each service (continue on partial failure)
-      const services = [
-        {
-          name: "vault" as const,
-          restore: (e: ServiceBackupEntry) =>
-            fastify.vaultClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
-        },
-        {
-          name: "audit" as const,
-          restore: (e: ServiceBackupEntry) =>
-            opts.auditClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
-        },
-        {
-          name: "memory" as const,
-          restore: (e: ServiceBackupEntry) =>
-            memoryClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
-        },
-        {
-          name: "skills" as const,
-          restore: (e: ServiceBackupEntry) =>
-            fastify.skillsClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
-        },
-      ] as const;
-
-      let anyFailure = false;
-      for (const svc of services) {
+        let envelope: BackupEnvelope;
         try {
-          const res = await svc.restore(envelope.services[svc.name]);
-          results[svc.name] = { success: true, restart_required: res.restart_required };
+          const decompressed = gunzipSync(rawBody);
+          const parsed: unknown = JSON.parse(decompressed.toString("utf-8"));
+          const result = BackupEnvelopeSchema.safeParse(parsed);
+          if (!result.success) {
+            await reply.code(400).send({ error: "validation_error", issues: result.error.issues });
+            return;
+          }
+          envelope = result.data;
         } catch (err) {
-          anyFailure = true;
-          results[svc.name] = {
-            success: false,
-            restart_required: false,
-            error: err instanceof Error ? err.message : "unknown",
-          };
+          await reply.code(400).send({ error: "invalid_backup", message: "Could not decompress or parse backup archive" });
+          return;
         }
-      }
 
-      opts.auditClient.logEvent({
-        event_type: anyFailure ? "BACKUP_RESTORE_PARTIAL" : "BACKUP_RESTORED",
-        payload: { results },
-        severity: anyFailure ? "ERROR" : "WARN",
-      }).catch(() => { /* fire-and-forget */ });
+        const results: Record<string, { success: boolean; restart_required: boolean; error?: string }> = {};
 
-      const statusCode = anyFailure ? 207 : 200;
-      await reply.code(statusCode).send({
-        success: !anyFailure,
-        backup_created_at_unix_ms: envelope.created_at_unix_ms,
-        services: results,
-        restart_required: Object.values(results).some((r) => r.restart_required),
-      });
-    },
-  );
+        // Restore each service (continue on partial failure)
+        const services = [
+          {
+            name: "vault" as const,
+            restore: (e: ServiceBackupEntry) =>
+              fastify.vaultClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
+          },
+          {
+            name: "audit" as const,
+            restore: (e: ServiceBackupEntry) =>
+              opts.auditClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
+          },
+          {
+            name: "memory" as const,
+            restore: (e: ServiceBackupEntry) =>
+              memoryClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
+          },
+          {
+            name: "skills" as const,
+            restore: (e: ServiceBackupEntry) =>
+              fastify.skillsClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
+          },
+        ] as const;
+
+        let anyFailure = false;
+        for (const svc of services) {
+          try {
+            const res = await svc.restore(envelope.services[svc.name]);
+            results[svc.name] = { success: true, restart_required: res.restart_required };
+          } catch (err) {
+            anyFailure = true;
+            results[svc.name] = {
+              success: false,
+              restart_required: false,
+              error: err instanceof Error ? err.message : "unknown",
+            };
+          }
+        }
+
+        opts.auditClient.logEvent({
+          event_type: anyFailure ? "BACKUP_RESTORE_PARTIAL" : "BACKUP_RESTORED",
+          payload: { results },
+          severity: anyFailure ? "ERROR" : "WARN",
+        }).catch(() => { /* fire-and-forget */ });
+
+        const statusCode = anyFailure ? 207 : 200;
+        await reply.code(statusCode).send({
+          success: !anyFailure,
+          backup_created_at_unix_ms: envelope.created_at_unix_ms,
+          services: results,
+          restart_required: Object.values(results).some((r) => r.restart_required),
+        });
+      },
+    );
+  });
 }
