@@ -10,7 +10,8 @@
  *   tessera session delete  <sessionId>            [--token <t>] [--url <url>]
  *   tessera health                                              [--url <url>]
  *   tessera skill keygen|sign|install-local|publish|list|install|installed
- *   tessera vault store|list|delete
+ *   tessera vault store|list|delete|rotate-key
+ *   tessera backup create|restore
  *
  * Environment variables (can be set in .env — run `tessera init`):
  *   GATEWAY_HMAC_SECRET  — HMAC secret for token generation
@@ -27,6 +28,7 @@ import { healthCommand } from "./commands/health.js";
 import { skillCommand } from "./commands/skill.js";
 import { vaultCommand } from "./commands/vault.js";
 import { initCommand } from "./commands/init.js";
+import { backupCommand } from "./commands/backup.js";
 
 const program = new Command();
 
@@ -41,5 +43,6 @@ program.addCommand(sessionCommand());
 program.addCommand(healthCommand());
 program.addCommand(skillCommand());
 program.addCommand(vaultCommand());
+program.addCommand(backupCommand());
 
 program.parse();

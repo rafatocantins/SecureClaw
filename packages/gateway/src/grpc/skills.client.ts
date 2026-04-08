@@ -17,6 +17,9 @@ import type {
   GrpcInstallSkillResponse,
   GrpcListSkillsRequest,
   GrpcListSkillsResponse,
+  GrpcDumpStateResponse,
+  GrpcRestoreStateRequest,
+  GrpcRestoreStateResponse,
 } from "@tessera/shared";
 
 export class SkillsGrpcClient {
@@ -115,6 +118,39 @@ export class SkillsGrpcClient {
         req,
         (err: grpc.ServiceError | null, res: GrpcListSkillsResponse) => {
           if (err) { reject(err); return; }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  dumpState(): Promise<GrpcDumpStateResponse> {
+    return new Promise((resolve, reject) => {
+      this.client.DumpState(
+        {},
+        (err: grpc.ServiceError | null, res: GrpcDumpStateResponse) => {
+          if (err) { reject(err); return; }
+          if (!res.success) {
+            reject(new Error(res.error_message || "DumpState failed"));
+            return;
+          }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  restoreState(data: Buffer, checksumSha256: string): Promise<GrpcRestoreStateResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcRestoreStateRequest = { data, checksum_sha256: checksumSha256 };
+      this.client.RestoreState(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcRestoreStateResponse) => {
+          if (err) { reject(err); return; }
+          if (!res.success) {
+            reject(new Error(res.error_message || "RestoreState failed"));
+            return;
+          }
           resolve(res);
         }
       );

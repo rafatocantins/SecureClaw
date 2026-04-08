@@ -21,11 +21,13 @@ import { chatRoute } from "./routes/chat.route.js";
 import { approvalsRoute } from "./routes/approvals.route.js";
 import { auditRoute } from "./routes/audit.route.js";
 import { credentialsRoute } from "./routes/credentials.route.js";
+import { vaultAdminRoute } from "./routes/vault-admin.route.js";
 import { complianceRoute } from "./routes/compliance.route.js";
 import { costsRoute } from "./routes/costs.route.js";
 import { marketplaceRoute } from "./routes/marketplace.route.js";
 import { skillsRoute } from "./routes/skills.route.js";
 import { tokenRoute } from "./routes/token.route.js";
+import { backupRoute } from "./routes/backup.route.js";
 import type { AgentGrpcClient } from "./grpc/agent.client.js";
 import { AuditGrpcClient } from "./grpc/audit.client.js";
 import { VaultGrpcClient } from "./grpc/vault.client.js";
@@ -44,6 +46,8 @@ export async function buildServer(config: GatewayConfig, agentClient: AgentGrpcC
         "req.body.api_key",
         "req.body.secret",
         "req.body.value",
+        "req.body.old_master_key",
+        "req.body.new_master_key",
       ],
     },
     trustProxy: false,
@@ -132,6 +136,7 @@ export async function buildServer(config: GatewayConfig, agentClient: AgentGrpcC
   const vaultClient = new VaultGrpcClient();
   app.decorate("vaultClient", vaultClient);
   await app.register(credentialsRoute, { prefix: "/api/v1/credentials" });
+  await app.register(vaultAdminRoute, { prefix: "/api/v1/vault", auditClient });
 
   await app.register(complianceRoute, { prefix: "/api/v1/compliance", auditClient });
   await app.register(costsRoute, { prefix: "/api/v1/costs", auditClient });
@@ -140,6 +145,8 @@ export async function buildServer(config: GatewayConfig, agentClient: AgentGrpcC
   app.decorate("skillsClient", skillsClient);
   await app.register(marketplaceRoute, { prefix: "/api/v1/marketplace", skillsClient });
   await app.register(skillsRoute, { prefix: "/api/v1/skills", skillsClient });
+
+  await app.register(backupRoute, { prefix: "/api/v1/backup", auditClient });
 
   return app;
 }

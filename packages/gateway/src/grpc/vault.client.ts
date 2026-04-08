@@ -15,6 +15,11 @@ import type {
   GrpcSecretRef,
   GrpcGetSecretRefRequest,
   GrpcGetSecretRefResponse,
+  GrpcRotateKeyRequest,
+  GrpcRotateKeyResponse,
+  GrpcDumpStateResponse,
+  GrpcRestoreStateRequest,
+  GrpcRestoreStateResponse,
 } from "@tessera/shared";
 
 export class VaultGrpcClient {
@@ -85,6 +90,59 @@ export class VaultGrpcClient {
         req,
         (err: grpc.ServiceError | null, res: GrpcGetSecretRefResponse) => {
           if (err) { reject(err); return; }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  rotateKey(oldMasterKey: string, newMasterKey: string): Promise<{ rotated_count: number }> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcRotateKeyRequest = {
+        old_master_key: oldMasterKey,
+        new_master_key: newMasterKey,
+      };
+      this.client.RotateKey(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcRotateKeyResponse) => {
+          if (err) { reject(err); return; }
+          if (!res.success) {
+            reject(new Error(res.error_message || "RotateKey failed"));
+            return;
+          }
+          resolve({ rotated_count: res.rotated_count });
+        }
+      );
+    });
+  }
+
+  dumpState(): Promise<GrpcDumpStateResponse> {
+    return new Promise((resolve, reject) => {
+      this.client.DumpState(
+        {},
+        (err: grpc.ServiceError | null, res: GrpcDumpStateResponse) => {
+          if (err) { reject(err); return; }
+          if (!res.success) {
+            reject(new Error(res.error_message || "DumpState failed"));
+            return;
+          }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  restoreState(data: Buffer, checksumSha256: string): Promise<GrpcRestoreStateResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcRestoreStateRequest = { data, checksum_sha256: checksumSha256 };
+      this.client.RestoreState(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcRestoreStateResponse) => {
+          if (err) { reject(err); return; }
+          if (!res.success) {
+            reject(new Error(res.error_message || "RestoreState failed"));
+            return;
+          }
           resolve(res);
         }
       );
