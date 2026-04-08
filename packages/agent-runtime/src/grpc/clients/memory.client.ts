@@ -17,11 +17,19 @@ import type {
   GrpcStoredMessage,
   GrpcDeleteUserDataRequest,
   GrpcDeleteUserDataResponse,
+  GrpcStoreLessonsRequest,
+  GrpcStoreLessonsResponse,
+  GrpcGetRelevantLessonsRequest,
+  GrpcGetRelevantLessonsResponse,
+  GrpcListLessonsRequest,
+  GrpcListLessonsResponse,
+  GrpcStoredLesson,
 } from "@tessera/shared";
 import type { SessionContext } from "../../session/session-context.js";
 import type { LLMMessage } from "../../llm/provider.interface.js";
 
 export type { GrpcStoredMessage as StoredMemoryMessage };
+export type { GrpcStoredLesson as StoredMemoryLesson };
 
 export class MemoryGrpcClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -123,6 +131,85 @@ export class MemoryGrpcClient {
             return;
           }
           resolve(res.messages ?? []);
+        }
+      );
+    });
+  }
+
+  /**
+   * Fire-and-forget — stores lessons extracted from a session.
+   * Never throws; failures logged to stderr.
+   */
+  storeLessons(
+    userId: string,
+    sourceSessionId: string,
+    lessons: Array<{ lesson_text: string; category: string }>
+  ): void {
+    if (lessons.length === 0) return;
+    const req: GrpcStoreLessonsRequest = {
+      source_session_id: sourceSessionId,
+      user_id: userId,
+      lessons: lessons.map((l) => ({ lesson_text: l.lesson_text, category: l.category })),
+    };
+    this.client.StoreLessons(req, (err: grpc.ServiceError | null, _res: GrpcStoreLessonsResponse) => {
+      if (err) {
+        process.stderr.write(`[memory-client] storeLessons failed: ${err.message}\n`);
+      }
+    });
+  }
+
+  /**
+   * Retrieve relevant lessons for a user.
+   * FTS5 search when query is non-empty; otherwise returns most-recent.
+   * Resolves [] on timeout or any error — never rejects.
+   */
+  getRelevantLessons(userId: string, query = "", limit = 5): Promise<GrpcStoredLesson[]> {
+    return new Promise((resolve) => {
+      const req: GrpcGetRelevantLessonsRequest = { user_id: userId, query, limit };
+
+      const timer = setTimeout(() => {
+        process.stderr.write(`[memory-client] getRelevantLessons timed out for user ${userId}\n`);
+        resolve([]);
+      }, 2_000);
+
+      this.client.GetRelevantLessons(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcGetRelevantLessonsResponse) => {
+          clearTimeout(timer);
+          if (err) {
+            process.stderr.write(`[memory-client] getRelevantLessons failed: ${err.message}\n`);
+            resolve([]);
+            return;
+          }
+          resolve(res.lessons ?? []);
+        }
+      );
+    });
+  }
+
+  /**
+   * List all lessons for a user (admin / CLI use).
+   * Resolves [] on timeout or any error — never rejects.
+   */
+  listLessons(userId: string, limit = 20): Promise<GrpcStoredLesson[]> {
+    return new Promise((resolve) => {
+      const req: GrpcListLessonsRequest = { user_id: userId, limit };
+
+      const timer = setTimeout(() => {
+        process.stderr.write(`[memory-client] listLessons timed out for user ${userId}\n`);
+        resolve([]);
+      }, 2_000);
+
+      this.client.ListLessons(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcListLessonsResponse) => {
+          clearTimeout(timer);
+          if (err) {
+            process.stderr.write(`[memory-client] listLessons failed: ${err.message}\n`);
+            resolve([]);
+            return;
+          }
+          resolve(res.lessons ?? []);
         }
       );
     });

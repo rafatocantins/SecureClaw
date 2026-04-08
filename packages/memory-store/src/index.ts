@@ -6,7 +6,7 @@
  */
 
 export { MemoryService } from "./memory.service.js";
-export type { StoredMessage, StoreSessionParams, AppendMessageParams, FinalizeSessionParams } from "./memory.service.js";
+export type { StoredMessage, StoreSessionParams, AppendMessageParams, FinalizeSessionParams, StoredLesson, LessonCategory, StoreLessonsParams } from "./memory.service.js";
 export { createMemoryDatabase } from "./db/connection.js";
 export { initSchema } from "./db/schema.js";
 export { startMemoryGrpcServer } from "./grpc/server.js";

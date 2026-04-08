@@ -603,6 +603,52 @@ export interface GrpcDeleteUserDataResponse {
   success: boolean;
 }
 
+// Lessons
+export interface GrpcLessonInput {
+  lesson_text: string;
+  category: string;
+}
+
+export interface GrpcStoredLesson {
+  id: number;
+  user_id: string;
+  source_session_id: string;
+  lesson_text: string;
+  category: string;
+  created_at: number;
+  access_count: number;
+}
+
+export interface GrpcStoreLessonsRequest {
+  source_session_id: string;
+  user_id: string;
+  lessons: GrpcLessonInput[];
+}
+
+export interface GrpcStoreLessonsResponse {
+  stored_count: number;
+  success: boolean;
+}
+
+export interface GrpcGetRelevantLessonsRequest {
+  user_id: string;
+  query: string;
+  limit: number;
+}
+
+export interface GrpcGetRelevantLessonsResponse {
+  lessons: GrpcStoredLesson[];
+}
+
+export interface GrpcListLessonsRequest {
+  user_id: string;
+  limit: number;
+}
+
+export interface GrpcListLessonsResponse {
+  lessons: GrpcStoredLesson[];
+}
+
 // ── Control UI — agent runtime extensions ──────────────────────────────────
 
 export interface GrpcListSessionsRequest {}

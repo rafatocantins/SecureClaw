@@ -31,6 +31,7 @@ import type { LogEventParams } from "../grpc/clients/audit.client.js";
 import type { SandboxGrpcClient } from "../grpc/clients/sandbox.client.js";
 import type { SkillsGrpcClient } from "../grpc/clients/skills.client.js";
 import type { MemoryGrpcClient, StoredMemoryMessage } from "../grpc/clients/memory.client.js";
+import { LessonExtractor } from "../lessons/lesson-extractor.js";
 
 /**
  * Convert an AlertAuditEvent into LogEventParams for the audit client.
@@ -273,13 +274,17 @@ export class AgentLoop {
     })();
 
     try {
-    // ── Memory: load prior conversation history on first turn ─────────────────
+    // ── Memory: load prior conversation history and lessons on first turn ────────
     if (this.memoryClient && ctx.messages.length === 0) {
       // Register session (fire-and-forget — must happen before appendMessage calls)
       this.memoryClient.storeSession(ctx);
 
-      // Fetch prior messages — 2-second timeout, resolves [] if memory is down
-      const prior = await this.memoryClient.getRecentMessages(ctx.user_id, 30);
+      // Fetch prior messages and lessons in parallel — both resolve [] on failure
+      const [prior, priorLessonRows] = await Promise.all([
+        this.memoryClient.getRecentMessages(ctx.user_id, 30),
+        this.memoryClient.getRelevantLessons(ctx.user_id, "", 5),
+      ]);
+
       if (prior.length > 0) {
         for (const m of prior as StoredMemoryMessage[]) {
           if (m.role === "user") {
@@ -302,6 +307,11 @@ export class AgentLoop {
             });
           }
         }
+      }
+
+      // Store lesson texts in context so they can be injected into the system prompt
+      if (priorLessonRows.length > 0) {
+        ctx.priorLessons = priorLessonRows.map((l) => l.lesson_text);
       }
     }
 
@@ -396,6 +406,7 @@ export class AgentLoop {
         sessionDelimiter: ctx.delimiters.open_tag,
         allowedToolIds: this.policyEngine.getAllowedToolIds(),
         costCapUsd: 5.0,
+        ...(ctx.priorLessons.length > 0 ? { priorLessons: ctx.priorLessons } : {}),
       });
 
       // Merge: built-in tools (policy-filtered) + skill tools
@@ -786,6 +797,9 @@ export class AgentLoop {
             toolSpan.end();
           }
 
+          // Track tool failures for lesson extraction at session end
+          if (!toolSuccess) ctx.hadToolFailure = true;
+
           // Scan tool output for prompt injection before handing it to the LLM
           const outputScan = await this.sanitizer.sanitizeExternalContent(
             toolResult, ctx.session_id, `tool:${tool_id}`
@@ -917,6 +931,20 @@ export class AgentLoop {
 
     // Memory: finalize session with final token/cost counts (fire-and-forget)
     this.memoryClient?.finalizeSession(ctx);
+
+    // ── Reflection: extract lessons from this session and store them ──────────
+    // Best-effort — never throws. Only runs when memory is connected and the
+    // session had meaningful content (tool failures or multi-turn exchanges).
+    if (this.memoryClient && ctx.messages.length > 1) {
+      const extractor = new LessonExtractor(ctx.provider);
+      extractor.extract(ctx.messages).then((lessons) => {
+        if (lessons.length > 0) {
+          this.memoryClient!.storeLessons(ctx.user_id, ctx.session_id, lessons);
+        }
+      }).catch(() => {
+        // Lesson extraction is best-effort — ignore all errors
+      });
+    }
 
     yield {
       complete: {

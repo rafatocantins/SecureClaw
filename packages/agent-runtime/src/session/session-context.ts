@@ -22,6 +22,10 @@ export interface SessionContext {
   tool_call_count: number;
   status: "active" | "idle" | "awaiting_approval" | "terminated" | "error";
   last_activity_at: number;
+  /** Lessons from prior sessions, injected into the system prompt on first turn. */
+  priorLessons: string[];
+  /** Set to true if any tool call failed during this session (used for self-critique). */
+  hadToolFailure: boolean;
 }
 
 export function createSessionContext(params: {
@@ -43,6 +47,8 @@ export function createSessionContext(params: {
     tool_call_count: 0,
     status: "active",
     last_activity_at: Date.now(),
+    priorLessons: [],
+    hadToolFailure: false,
   };
 }
 

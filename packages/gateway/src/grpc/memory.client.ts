@@ -8,6 +8,9 @@ import type {
   GrpcDumpStateResponse,
   GrpcRestoreStateRequest,
   GrpcRestoreStateResponse,
+  GrpcListLessonsRequest,
+  GrpcListLessonsResponse,
+  GrpcStoredLesson,
 } from "@tessera/shared";
 
 export class MemoryGrpcClient {
@@ -53,6 +56,19 @@ export class MemoryGrpcClient {
             return;
           }
           resolve(res);
+        }
+      );
+    });
+  }
+
+  listLessons(userId: string, limit = 20): Promise<GrpcStoredLesson[]> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcListLessonsRequest = { user_id: userId, limit };
+      this.client.ListLessons(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcListLessonsResponse) => {
+          if (err) { reject(err); return; }
+          resolve(res.lessons ?? []);
         }
       );
     });

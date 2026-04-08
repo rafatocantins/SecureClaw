@@ -73,5 +73,40 @@ export function initSchema(db: DatabaseSync): void {
       INSERT INTO messages_fts(messages_fts, rowid, content)
         VALUES ('delete', old.id, old.content);
     END;
+
+    -- =========================================================================
+    -- lessons
+    -- =========================================================================
+    CREATE TABLE IF NOT EXISTS lessons (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id           TEXT    NOT NULL,
+      source_session_id TEXT    NOT NULL,
+      lesson_text       TEXT    NOT NULL,
+      category          TEXT    NOT NULL CHECK(category IN ('mistake','preference','procedure','fact')),
+      created_at        INTEGER NOT NULL,
+      access_count      INTEGER NOT NULL DEFAULT 0
+    ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS idx_lessons_user
+      ON lessons(user_id, created_at DESC);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_dedup
+      ON lessons(user_id, lesson_text);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS lessons_fts
+      USING fts5(lesson_text, content=lessons, content_rowid=id);
+
+    CREATE TRIGGER IF NOT EXISTS lessons_fts_insert
+      AFTER INSERT ON lessons
+    BEGIN
+      INSERT INTO lessons_fts(rowid, lesson_text) VALUES (new.id, new.lesson_text);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS lessons_fts_delete
+      AFTER DELETE ON lessons
+    BEGIN
+      INSERT INTO lessons_fts(lessons_fts, rowid, lesson_text)
+        VALUES ('delete', old.id, old.lesson_text);
+    END;
   `);
 }
