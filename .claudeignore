@@ -1,0 +1,10 @@
+# Files excluded from Claude Code auto-context to save tokens.
+# These are large reference-only files. Reference them explicitly when needed.
+
+# Large reference docs (open manually when relevant)
+ROADMAP.md
+competitive-intel.md
+PATTERN-ISSUES.md
+
+# Historical task/sprint state — large, rarely needed inline
+.claude/state/
