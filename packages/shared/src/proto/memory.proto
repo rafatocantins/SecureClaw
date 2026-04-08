@@ -17,6 +17,10 @@ service MemoryService {
   rpc SearchMessages(SearchMessagesRequest) returns (stream StoredMessage);
   // GDPR-style deletion — removes all sessions and messages for a user
   rpc DeleteUserData(DeleteUserDataRequest) returns (DeleteUserDataResponse);
+  // Dump service state for backup. Returns gzip-compressed bytes.
+  rpc DumpState(DumpStateRequest) returns (DumpStateResponse);
+  // Restore service state from a prior DumpState payload.
+  rpc RestoreState(RestoreStateRequest) returns (RestoreStateResponse);
 }
 
 message StoreSessionRequest {
@@ -93,4 +97,26 @@ message DeleteUserDataRequest {
 message DeleteUserDataResponse {
   int64 deleted_count = 1;  // number of messages deleted
   bool  success       = 2;
+}
+
+// ── Backup / Restore ─────────────────────────────────────────────────────
+
+message DumpStateRequest {}
+
+message DumpStateResponse {
+  bytes data = 1;
+  string checksum_sha256 = 2;
+  bool success = 3;
+  string error_message = 4;
+}
+
+message RestoreStateRequest {
+  bytes data = 1;
+  string checksum_sha256 = 2;
+}
+
+message RestoreStateResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool restart_required = 3;
 }

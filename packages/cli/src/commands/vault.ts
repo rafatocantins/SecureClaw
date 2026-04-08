@@ -105,5 +105,40 @@ export function vaultCommand(): Command {
     }
   });
 
+  // ── rotate-key ───────────────────────────────────────────────────────────
+  addCommonOpts(
+    vault
+      .command("rotate-key")
+      .description(
+        "Re-encrypt all vault entries with a new master key (file backend only). " +
+        "After rotation, update VAULT_MASTER_KEY to the new value."
+      )
+      .requiredOption("--new-key <hex>", "New master key (hex string or passphrase)")
+      .option("--old-key <hex>", "Old master key (defaults to $VAULT_MASTER_KEY)")
+  ).action(async (opts: { token?: string; url: string; newKey: string; oldKey?: string }) => {
+    const token = resolveToken(opts);
+    const oldKey = opts.oldKey ?? process.env["VAULT_MASTER_KEY"];
+    if (!oldKey) {
+      process.stderr.write("error: --old-key or VAULT_MASTER_KEY required\n");
+      process.exit(1);
+    }
+    try {
+      const res = await apiPost(
+        `${opts.url}/api/v1/vault/rotate-key`,
+        token,
+        { old_master_key: oldKey, new_master_key: opts.newKey },
+      ) as { body: { rotated_count: number } };
+      process.stdout.write(
+        `key rotation complete: ${res.body.rotated_count} entries re-encrypted\n`,
+      );
+      process.stdout.write(
+        "ACTION REQUIRED: update VAULT_MASTER_KEY to the new value and restart tessera vault\n",
+      );
+    } catch (err) {
+      printApiError(err);
+      process.exit(1);
+    }
+  });
+
   return vault;
 }

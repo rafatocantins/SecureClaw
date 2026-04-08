@@ -32,6 +32,7 @@ if (isMain) {
   const { SandboxGrpcClient } = await import("./grpc/clients/sandbox.client.js");
   const { SkillsGrpcClient } = await import("./grpc/clients/skills.client.js");
   const { MemoryGrpcClient } = await import("./grpc/clients/memory.client.js");
+  const { AlertingService } = await import("@tessera/alerting");
   const { startAgentGrpcServer: start } = await import("./grpc/server.js");
 
   // Build default tool allowlist: shell_exec, http_request, file_read, file_write
@@ -66,7 +67,22 @@ if (isMain) {
   const skillsClient = new SkillsGrpcClient();
   const memoryClient = new MemoryGrpcClient();
 
-  const agentLoop = new Loop(sanitizer, policyEngine, sessionManager.approvalGate, vaultClient, auditClient, sandboxClient, skillsClient, memoryClient);
+  // Webhook alerting — enabled when TESSERA_WEBHOOK_URL is set.
+  // Both URL and secret must be present to activate (secret enables HMAC signing).
+  // TESSERA_WEBHOOK_SECRET is optional — if absent, no X-Webhook-Signature header is sent.
+  const webhookUrl = process.env["TESSERA_WEBHOOK_URL"];
+  const webhookSecret = process.env["TESSERA_WEBHOOK_SECRET"] ?? "";
+  let alertingService: InstanceType<typeof AlertingService> | undefined;
+  if (webhookUrl) {
+    try {
+      alertingService = new AlertingService({ webhookUrl, webhookSecret });
+      process.stdout.write("[agent-runtime] Webhook alerting enabled\n");
+    } catch (err) {
+      process.stderr.write(`[agent-runtime] Webhook alerting DISABLED — invalid TESSERA_WEBHOOK_URL: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+
+  const agentLoop = new Loop(sanitizer, policyEngine, sessionManager.approvalGate, vaultClient, auditClient, sandboxClient, skillsClient, memoryClient, alertingService);
 
   await start(sessionManager, agentLoop);
   process.stdout.write("[agent-runtime] Service ready\n");

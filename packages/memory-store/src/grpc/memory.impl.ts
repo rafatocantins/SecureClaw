@@ -20,6 +20,10 @@ import type {
   GrpcStoredMessage,
   GrpcDeleteUserDataRequest,
   GrpcDeleteUserDataResponse,
+  GrpcDumpStateRequest,
+  GrpcDumpStateResponse,
+  GrpcRestoreStateRequest,
+  GrpcRestoreStateResponse,
 } from "@tessera/shared";
 
 type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
@@ -152,6 +156,48 @@ export function makeMemoryImpl(memorySvc: MemoryService) {
       } catch (err) {
         process.stderr.write(`[memory-grpc] deleteUserData error: ${String(err)}\n`);
         callback(null, { deleted_count: 0, success: false });
+      }
+    },
+
+    DumpState(
+      _call: UnaryCall<GrpcDumpStateRequest, GrpcDumpStateResponse>,
+      callback: Callback<GrpcDumpStateResponse>
+    ): void {
+      try {
+        const { data, checksum } = memorySvc.dumpState();
+        callback(null, {
+          data,
+          checksum_sha256: checksum,
+          success: true,
+          error_message: "",
+        });
+      } catch (err) {
+        callback(null, {
+          data: Buffer.alloc(0),
+          checksum_sha256: "",
+          success: false,
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+
+    RestoreState(
+      call: UnaryCall<GrpcRestoreStateRequest, GrpcRestoreStateResponse>,
+      callback: Callback<GrpcRestoreStateResponse>
+    ): void {
+      try {
+        memorySvc.restoreState(Buffer.from(call.request.data), call.request.checksum_sha256);
+        callback(null, {
+          success: true,
+          error_message: "",
+          restart_required: true,
+        });
+      } catch (err) {
+        callback(null, {
+          success: false,
+          error_message: err instanceof Error ? err.message : String(err),
+          restart_required: false,
+        });
       }
     },
   };

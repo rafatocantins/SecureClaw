@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# SUPERSEDED: This script has been replaced by scripts/gen-certs.mjs (cross-platform Node.js).
+# Run: node scripts/gen-certs.mjs
+# This file is kept for reference only. Do not use in CI or automated tooling.
+#
 # gen-certs.sh — Generate self-signed CA and per-service mTLS certificates
 # Usage: bash scripts/gen-certs.sh [output_dir]
 # Default output: ./certs/

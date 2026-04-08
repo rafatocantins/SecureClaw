@@ -4,6 +4,9 @@
  * All database operations are synchronous (node:sqlite).
  * Prepared statements are compiled once in the constructor.
  */
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 
 export interface StoredMessage {
@@ -47,6 +50,7 @@ export interface FinalizeSessionParams {
 
 export class MemoryService {
   private readonly db: DatabaseSync;
+  private readonly dbPath: string | undefined;
 
   // Compiled prepared statements
   private stmtUpsertSession!: StatementSync;
@@ -56,8 +60,9 @@ export class MemoryService {
   private stmtCountUserMessages!: StatementSync;
   private stmtDeleteUserSessions!: StatementSync;
 
-  constructor(db: DatabaseSync) {
+  constructor(db: DatabaseSync, dbPath?: string) {
     this.db = db;
+    this.dbPath = dbPath;
     this.prepareStatements();
   }
 
@@ -187,5 +192,46 @@ export class MemoryService {
     const messageCount = row.count;
     this.stmtDeleteUserSessions.run(userId);
     return messageCount;
+  }
+
+  /** Return the path to the underlying SQLite database file. */
+  getDbPath(): string | undefined {
+    return this.dbPath;
+  }
+
+  /**
+   * Dump the memory database as gzip-compressed bytes with SHA-256 checksum.
+   * Performs a WAL checkpoint first to ensure the main DB file is up-to-date.
+   */
+  dumpState(): { data: Buffer; checksum: string } {
+    if (this.dbPath === undefined) {
+      throw new Error("Cannot dump state: dbPath not provided at construction");
+    }
+
+    this.db.exec("PRAGMA wal_checkpoint(FULL)");
+
+    const raw = readFileSync(this.dbPath);
+    const checksum = createHash("sha256").update(raw).digest("hex");
+    const compressed = gzipSync(raw);
+    return { data: compressed, checksum };
+  }
+
+  /**
+   * Restore memory state from a gzip-compressed database dump.
+   * Writes to <path>.new; startup migration applies it on next restart.
+   */
+  restoreState(data: Buffer, checksum: string): void {
+    if (this.dbPath === undefined) {
+      throw new Error("Cannot restore state: dbPath not provided at construction");
+    }
+
+    const raw = gunzipSync(data);
+    const actual = createHash("sha256").update(raw).digest("hex");
+    if (actual !== checksum) {
+      throw new Error(`Checksum mismatch: expected ${checksum}, got ${actual}`);
+    }
+
+    const newPath = this.dbPath + ".new";
+    writeFileSync(newPath, raw);
   }
 }

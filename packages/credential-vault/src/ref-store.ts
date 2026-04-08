@@ -19,8 +19,10 @@ export interface SecretRef {
 
 export class RefStore {
   private db: Database.Database;
+  private readonly dataDir: string;
 
   constructor(dataDir: string) {
+    this.dataDir = dataDir;
     mkdirSync(dataDir, { recursive: true });
     this.db = new Database(join(dataDir, "vault-refs.db"), {
       fileMustExist: false,
@@ -103,6 +105,16 @@ export class RefStore {
       )
       .run(service, account);
     return result.changes > 0;
+  }
+
+  /** Force a WAL checkpoint so the main DB file is fully up-to-date on disk. */
+  checkpoint(): void {
+    this.db.pragma("wal_checkpoint(FULL)");
+  }
+
+  /** Return the path to the SQLite database file. */
+  getDbPath(): string {
+    return join(this.dataDir, "vault-refs.db");
   }
 
   close(): void {

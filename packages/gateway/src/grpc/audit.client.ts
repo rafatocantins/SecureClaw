@@ -14,6 +14,15 @@ import type {
   GrpcComplianceReportResponse,
   GrpcGetTeamCostSummaryRequest,
   GrpcGetTeamCostSummaryResponse,
+  GrpcGetTeamQuotaRequest,
+  GrpcGetTeamQuotaResponse,
+  GrpcSetTeamQuotaRequest,
+  GrpcSetTeamQuotaResponse,
+  GrpcCheckQuotaExceededRequest,
+  GrpcCheckQuotaExceededResponse,
+  GrpcDumpStateResponse,
+  GrpcRestoreStateRequest,
+  GrpcRestoreStateResponse,
 } from "@tessera/shared";
 
 export interface CostSummary {
@@ -91,6 +100,103 @@ export class AuditGrpcClient {
         req,
         (err: grpc.ServiceError | null, res: GrpcGetTeamCostSummaryResponse) => {
           if (err) { reject(err); return; }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  getTeamQuota(teamId: string): Promise<GrpcGetTeamQuotaResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcGetTeamQuotaRequest = { team_id: teamId };
+      this.client.GetTeamQuota(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcGetTeamQuotaResponse) => {
+          if (err) { reject(err); return; }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  setTeamQuota(teamId: string, quotaUsd: number): Promise<GrpcSetTeamQuotaResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcSetTeamQuotaRequest = { team_id: teamId, quota_usd: quotaUsd };
+      this.client.SetTeamQuota(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcSetTeamQuotaResponse) => {
+          if (err) { reject(err); return; }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  checkQuotaExceeded(teamId: string): Promise<GrpcCheckQuotaExceededResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcCheckQuotaExceededRequest = { team_id: teamId };
+      this.client.CheckQuotaExceeded(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcCheckQuotaExceededResponse) => {
+          if (err) { reject(err); return; }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  logEvent(params: {
+    event_type: string;
+    session_id?: string;
+    user_id?: string;
+    payload: Record<string, unknown>;
+    severity: string;
+  }): Promise<{ event_id: number; success: boolean; alerts_triggered: unknown[] }> {
+    return new Promise((resolve) => {
+      const req = {
+        event_type: params.event_type,
+        session_id: params.session_id ?? "",
+        user_id: params.user_id ?? "",
+        payload_json: JSON.stringify(params.payload),
+        severity: params.severity,
+      };
+      this.client.LogEvent(req, (err: grpc.ServiceError | null, res: { event_id: number; success: boolean }) => {
+        if (err) {
+          // Fire and forget, don't reject
+          return;
+        }
+        resolve({ event_id: res.event_id, success: res.success, alerts_triggered: [] });
+      });
+    });
+  }
+
+  dumpState(): Promise<GrpcDumpStateResponse> {
+    return new Promise((resolve, reject) => {
+      this.client.DumpState(
+        {},
+        (err: grpc.ServiceError | null, res: GrpcDumpStateResponse) => {
+          if (err) { reject(err); return; }
+          if (!res.success) {
+            reject(new Error(res.error_message || "DumpState failed"));
+            return;
+          }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  restoreState(data: Buffer, checksumSha256: string): Promise<GrpcRestoreStateResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcRestoreStateRequest = { data, checksum_sha256: checksumSha256 };
+      this.client.RestoreState(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcRestoreStateResponse) => {
+          if (err) { reject(err); return; }
+          if (!res.success) {
+            reject(new Error(res.error_message || "RestoreState failed"));
+            return;
+          }
           resolve(res);
         }
       );

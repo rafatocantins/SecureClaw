@@ -29,7 +29,12 @@ import type {
   GrpcGetMarketplaceSkillRequest,
   GrpcGetMarketplaceSkillResponse,
   GrpcInstallFromMarketplaceRequest,
+  GrpcDumpStateRequest,
+  GrpcDumpStateResponse,
+  GrpcRestoreStateRequest,
+  GrpcRestoreStateResponse,
 } from "@tessera/shared";
+import { dumpSkillsState, restoreSkillsState } from "../backup.js";
 
 type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type Callback<Res> = grpc.sendUnaryData<Res>;
@@ -330,6 +335,58 @@ export function makeSkillsImpl(registry: SkillRegistry, sandbox: SandboxGrpcClie
         process.stderr.write(`[skills-grpc] InstallFromMarketplace error: ${String(err)}\n`);
         callback(null, { success: false, message: String(err), skill_id: "", skill_version: "", tools_registered: 0 });
       }
+    },
+
+    DumpState(
+      _call: UnaryCall<GrpcDumpStateRequest, GrpcDumpStateResponse>,
+      callback: Callback<GrpcDumpStateResponse>
+    ): void {
+      dumpSkillsState(
+        registry.getRegistryPath(),
+        marketplace?.getMarketplacePath(),
+      )
+        .then(({ data, checksum }) => {
+          callback(null, {
+            data,
+            checksum_sha256: checksum,
+            success: true,
+            error_message: "",
+          });
+        })
+        .catch((err: unknown) => {
+          callback(null, {
+            data: Buffer.alloc(0),
+            checksum_sha256: "",
+            success: false,
+            error_message: err instanceof Error ? err.message : String(err),
+          });
+        });
+    },
+
+    RestoreState(
+      call: UnaryCall<GrpcRestoreStateRequest, GrpcRestoreStateResponse>,
+      callback: Callback<GrpcRestoreStateResponse>
+    ): void {
+      restoreSkillsState(
+        Buffer.from(call.request.data),
+        call.request.checksum_sha256,
+        registry.getRegistryPath(),
+        marketplace?.getMarketplacePath(),
+      )
+        .then(() => {
+          callback(null, {
+            success: true,
+            error_message: "",
+            restart_required: true,
+          });
+        })
+        .catch((err: unknown) => {
+          callback(null, {
+            success: false,
+            error_message: err instanceof Error ? err.message : String(err),
+            restart_required: false,
+          });
+        });
     },
   };
 }

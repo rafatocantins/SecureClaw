@@ -12,6 +12,8 @@ import { trace, context, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { PolicyDeniedError, CostCapError } from "@tessera/shared";
 import type { SanitizerService } from "@tessera/input-sanitizer";
 import type { GrpcAgentChunk } from "@tessera/shared";
+import { AlertingService, stripVaultRefs, TESSERA_VERSION } from "@tessera/alerting";
+import type { AlertAuditEvent } from "@tessera/alerting";
 import type { SessionContext } from "../session/session-context.js";
 import {
   addUserMessage,
@@ -25,9 +27,29 @@ import type { ApprovalGate } from "../tools/approval-gate.js";
 import type { LLMTool } from "./provider.interface.js";
 import type { VaultGrpcClient } from "../grpc/clients/vault.client.js";
 import type { AuditGrpcClient } from "../grpc/clients/audit.client.js";
+import type { LogEventParams } from "../grpc/clients/audit.client.js";
 import type { SandboxGrpcClient } from "../grpc/clients/sandbox.client.js";
 import type { SkillsGrpcClient } from "../grpc/clients/skills.client.js";
 import type { MemoryGrpcClient, StoredMemoryMessage } from "../grpc/clients/memory.client.js";
+
+/**
+ * Convert an AlertAuditEvent into LogEventParams for the audit client.
+ * Called fire-and-forget after each webhook delivery attempt.
+ */
+function toLogEventParams(e: AlertAuditEvent): LogEventParams {
+  return {
+    event_type: "ALERT_SENT",
+    session_id: e.session_id,
+    user_id: e.user_id,
+    payload: {
+      alert_event_type: e.alert_event_type,
+      delivery_success: e.delivery_success,
+      ...(e.status_code !== undefined ? { status_code: e.status_code } : {}),
+      ...(e.error !== undefined ? { error: e.error } : {}),
+    },
+    severity: e.delivery_success ? "INFO" : "WARN",
+  };
+}
 
 // Tool definitions exposed to the LLM — must match TOOL_REGISTRY
 const TOOL_DEFINITIONS: LLMTool[] = [
@@ -112,7 +134,9 @@ export class AgentLoop {
     /** Optional — when absent, only built-in tools are available */
     private readonly skillsClient?: SkillsGrpcClient,
     /** Optional — when absent, conversation history is not persisted across sessions */
-    private readonly memoryClient?: MemoryGrpcClient
+    private readonly memoryClient?: MemoryGrpcClient,
+    /** Optional — when absent, webhook alerting is disabled */
+    private readonly alertingService?: AlertingService
   ) {}
 
   /**
@@ -131,6 +155,16 @@ export class AgentLoop {
         payload: { excerpt: content.slice(0, 200), source: "user_input" },
         severity: "CRITICAL",
       });
+      // Trigger 1 — INJECTION_DETECTED (user input). Fire-and-forget.
+      void this.alertingService?.fireAlert({
+        event_type: "INJECTION_DETECTED",
+        timestamp: new Date().toISOString(),
+        tessera_version: TESSERA_VERSION,
+        session_id: ctx.session_id,
+        user_id: ctx.user_id,
+        source: "user_input",
+        excerpt: stripVaultRefs(content.slice(0, 256)),
+      }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
       yield {
         injection_warning: {
           excerpt: content.slice(0, 200),
@@ -162,6 +196,48 @@ export class AgentLoop {
     } catch {
       // Audit service unreachable — fail open with a warning (do not block the user)
       process.stderr.write(`[agent-loop] Could not check cost cap for user ${ctx.user_id} — proceeding\n`);
+    }
+
+    // Team-level quota check (T-2-01A enforcement path).
+    // Derive team_id by convention: "org/user" → "org"; bare userId → itself.
+    // TODO(future): replace with ctx.team_id once team_id is added to SessionContext proto.
+    const teamId = ctx.user_id.split("/")[0] ?? ctx.user_id;
+    try {
+      const quotaStatus = await this.auditClient.checkQuotaExceeded(teamId);
+      if (quotaStatus.exceeded) {
+        this.auditClient.logEvent({
+          event_type: "QUOTA_BREACH",
+          session_id: ctx.session_id,
+          user_id: ctx.user_id,
+          payload: {
+            team_id: teamId,
+            spent_usd: quotaStatus.spent_usd,
+            quota_usd: quotaStatus.quota_usd,
+          },
+          severity: "WARN",
+        });
+        // Trigger 4 — QUOTA_BREACH. Fire-and-forget.
+        void this.alertingService?.fireAlert({
+          event_type: "QUOTA_BREACH",
+          timestamp: new Date().toISOString(),
+          tessera_version: TESSERA_VERSION,
+          session_id: ctx.session_id,
+          user_id: ctx.user_id,
+          team_id: teamId,
+          spent_usd: quotaStatus.spent_usd,
+          quota_usd: quotaStatus.quota_usd,
+        }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
+        yield {
+          error: {
+            code: "QUOTA_EXCEEDED",
+            message: `Team quota of $${quotaStatus.quota_usd.toFixed(2)} USD exceeded`,
+          },
+        };
+        return;
+      }
+    } catch {
+      // Quota service unreachable — fail open with a warning, do not block the user
+      process.stderr.write(`[agent-loop] Could not check team quota for ${teamId} — proceeding\n`);
     }
 
     const tracer = trace.getTracer("tessera-agent-runtime", "0.1.0");
@@ -256,6 +332,15 @@ export class AgentLoop {
           payload: { reason: "agent_turn_cap_exceeded", max_turns: maxTurns },
           severity: "WARN",
         });
+        // Trigger 5a — POLICY_DENIED (turn cap). Fire-and-forget.
+        void this.alertingService?.fireAlert({
+          event_type: "POLICY_DENIED",
+          timestamp: new Date().toISOString(),
+          tessera_version: TESSERA_VERSION,
+          session_id: ctx.session_id,
+          user_id: ctx.user_id,
+          reason: "turn_cap_exceeded",
+        }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
         yield {
           error: {
             code: "TURN_CAP_EXCEEDED",
@@ -370,6 +455,16 @@ export class AgentLoop {
                 payload: { tool_id, reason: err.message },
                 severity: "WARN",
               });
+              // Trigger 5b — POLICY_DENIED (policy engine). Fire-and-forget.
+              void this.alertingService?.fireAlert({
+                event_type: "POLICY_DENIED",
+                timestamp: new Date().toISOString(),
+                tessera_version: TESSERA_VERSION,
+                session_id: ctx.session_id,
+                user_id: ctx.user_id,
+                reason: "policy_engine_denied",
+                tool_id,
+              }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
               yield {
                 error: {
                   code: "POLICY_DENIED",
@@ -404,6 +499,17 @@ export class AgentLoop {
               payload: { call_id, tool_id, input_preview: inputPreview },
               severity: "INFO",
             });
+            // Trigger 3 — APPROVAL_REQUESTED. Fire-and-forget.
+            void this.alertingService?.fireAlert({
+              event_type: "APPROVAL_REQUESTED",
+              timestamp: new Date().toISOString(),
+              tessera_version: TESSERA_VERSION,
+              session_id: ctx.session_id,
+              user_id: ctx.user_id,
+              call_id,
+              tool_id,
+              input_preview: stripVaultRefs(inputPreview.slice(0, 300)),
+            }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
 
             const approvalStart = Date.now();
             const approvalSpan = tracer.startSpan("tessera.approval.wait", { kind: SpanKind.INTERNAL }, otelCtx);
@@ -507,6 +613,16 @@ export class AgentLoop {
                 payload: { call_id, tool_id, reason: urlCheck.reason, category: urlCheck.category },
                 severity: "WARN",
               });
+              // Trigger 5c — POLICY_DENIED (SSRF block). Fire-and-forget.
+              void this.alertingService?.fireAlert({
+                event_type: "POLICY_DENIED",
+                timestamp: new Date().toISOString(),
+                tessera_version: TESSERA_VERSION,
+                session_id: ctx.session_id,
+                user_id: ctx.user_id,
+                reason: "ssrf_block",
+                tool_id,
+              }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
               yield { error: { code: "POLICY_DENIED", message: `URL blocked: ${urlCheck.reason}` } };
               toolResultsBuffer.push({
                 call_id, tool_id,
@@ -690,6 +806,16 @@ export class AgentLoop {
               },
               severity: "CRITICAL",
             });
+            // Trigger 2 — INJECTION_DETECTED (tool output). Fire-and-forget.
+            void this.alertingService?.fireAlert({
+              event_type: "INJECTION_DETECTED",
+              timestamp: new Date().toISOString(),
+              tessera_version: TESSERA_VERSION,
+              session_id: ctx.session_id,
+              user_id: ctx.user_id,
+              source: "tool_output",
+              excerpt: stripVaultRefs(toolResult.slice(0, 256)),
+            }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
             toolResultsBuffer.push({
               call_id, tool_id,
               result: "[TOOL OUTPUT SUPPRESSED: Prompt injection attempt detected]",

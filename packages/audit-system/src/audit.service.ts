@@ -4,6 +4,10 @@
  * All log writes are synchronous (node:sqlite) to ensure durability.
  * Alert rules are evaluated after every write.
  */
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import { nowUtcMs } from "@tessera/shared";
 import type { AuditEvent, AuditSeverity } from "@tessera/shared";
@@ -58,18 +62,34 @@ export interface TeamCostSummaryResult {
   grand_total_usd: number;
 }
 
+export interface GetTeamQuotaResult {
+  quota_usd: number;
+  current_spend_usd: number;
+  remaining_usd: number;
+  days_until_reset: number;
+  at_capacity: boolean;
+}
+
+export interface CheckQuotaExceededResult {
+  exceeded: boolean;
+  spent_usd: number;
+  quota_usd: number;
+}
+
 export class AuditService {
   private db: DatabaseSync;
   private costCapUsd: number;
+  private readonly dbPath: string | undefined;
 
   // Prepared statements (created once for performance)
   private stmtInsertEvent!: StatementSync;
   private stmtInsertAlert!: StatementSync;
   private stmtUpdateSession!: StatementSync;
 
-  constructor(db: DatabaseSync, costCapUsd = 5.0) {
+  constructor(db: DatabaseSync, costCapUsd = 5.0, dbPath?: string) {
     this.db = db;
     this.costCapUsd = costCapUsd;
+    this.dbPath = dbPath;
     this.prepareStatements();
   }
 
@@ -385,6 +405,89 @@ export class AuditService {
     return { teams, grand_total_usd };
   }
 
+  getTeamQuota(teamId: string): GetTeamQuotaResult {
+    // 1. Query team_quotas table
+    type QuotaRow = { quota_usd: number; billing_period_start: number; billing_period_days: number };
+    const quotaRow = this.db.prepare(
+      "SELECT quota_usd, billing_period_start, billing_period_days FROM team_quotas WHERE team_id = ?"
+    ).get(teamId) as QuotaRow | undefined;
+
+    // 2. If no quota configured, return "at capacity" (quota = 0)
+    if (!quotaRow) {
+      const currentSpend = this.getTeamSpend(teamId);
+      return {
+        quota_usd: 0,
+        current_spend_usd: currentSpend,
+        remaining_usd: 0,
+        days_until_reset: 0,
+        at_capacity: true,
+      };
+    }
+
+    // 3. Calculate current period boundaries
+    const now = nowUtcMs();
+    const billingPeriodMs = quotaRow.billing_period_days * 24 * 60 * 60 * 1000;
+    const periodStart = quotaRow.billing_period_start;
+    const periodEnd = periodStart + billingPeriodMs;
+
+    // 4. Sum cost_ledger for this team in the current period only
+    const currentSpend = this.getTeamSpendInPeriod(teamId, periodStart, periodEnd);
+
+    // 5. Calculate remaining
+    const remaining = Math.max(quotaRow.quota_usd - currentSpend, 0);
+
+    // 6. Calculate days until reset
+    const msUntilReset = Math.max(periodEnd - now, 0);
+    const daysUntilReset = Math.ceil(msUntilReset / (24 * 60 * 60 * 1000));
+
+    return {
+      quota_usd: quotaRow.quota_usd,
+      current_spend_usd: currentSpend,
+      remaining_usd: remaining,
+      days_until_reset: daysUntilReset,
+      at_capacity: remaining <= 0,
+    };
+  }
+
+  setTeamQuota(teamId: string, quotaUsd: number): void {
+    const now = nowUtcMs();
+
+    // Try INSERT or UPDATE (upsert pattern)
+    const stmt = this.db.prepare(
+      "INSERT INTO team_quotas (team_id, quota_usd, billing_period_start, billing_period_days, created_at, updated_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(team_id) DO UPDATE SET quota_usd = excluded.quota_usd, updated_at = excluded.updated_at"
+    );
+    stmt.run(teamId, quotaUsd, now, 30, now, now);
+  }
+
+  checkQuotaExceeded(teamId: string): CheckQuotaExceededResult {
+    const quota = this.getTeamQuota(teamId);
+    return {
+      exceeded: quota.at_capacity,
+      spent_usd: quota.current_spend_usd,
+      quota_usd: quota.quota_usd,
+    };
+  }
+
+  // Helper: sum cost_ledger for a team across all time
+  private getTeamSpend(teamId: string): number {
+    type CostRow = { total: number };
+    const row = this.db.prepare(
+      "SELECT COALESCE(SUM(cost_usd), 0) as total FROM cost_ledger WHERE team_id = ?"
+    ).get(teamId) as CostRow | undefined;
+    return row?.total ?? 0;
+  }
+
+  // Helper: sum cost_ledger for a team within a specific period
+  private getTeamSpendInPeriod(teamId: string, fromMs: number, toMs: number): number {
+    type CostRow = { total: number };
+    const row = this.db.prepare(
+      "SELECT COALESCE(SUM(cost_usd), 0) as total FROM cost_ledger WHERE team_id = ? AND recorded_at >= ? AND recorded_at < ?"
+    ).get(teamId, fromMs, toMs) as CostRow | undefined;
+    return row?.total ?? 0;
+  }
+
   private buildAlertContext(sessionId?: string): AlertContext {
     const now = nowUtcMs();
     const oneMinuteAgo = now - 60_000;
@@ -423,5 +526,47 @@ export class AuditService {
       costCapUsd: this.costCapUsd,
       largestOutputBytesThisSession: 0, // TODO: implement if needed
     };
+  }
+
+  /** Return the path to the underlying SQLite database file. */
+  getDbPath(): string | undefined {
+    return this.dbPath;
+  }
+
+  /**
+   * Dump the audit database as gzip-compressed bytes with SHA-256 checksum.
+   * Performs a WAL checkpoint first to ensure the main DB file is up-to-date.
+   */
+  dumpState(): { data: Buffer; checksum: string } {
+    if (this.dbPath === undefined) {
+      throw new Error("Cannot dump state: dbPath not provided at construction");
+    }
+
+    // Checkpoint WAL so all data is in the main file
+    this.db.exec("PRAGMA wal_checkpoint(FULL)");
+
+    const raw = readFileSync(this.dbPath);
+    const checksum = createHash("sha256").update(raw).digest("hex");
+    const compressed = gzipSync(raw);
+    return { data: compressed, checksum };
+  }
+
+  /**
+   * Restore audit state from a gzip-compressed database dump.
+   * Writes to <dir>/audit.db.new; startup migration applies it on next restart.
+   */
+  restoreState(data: Buffer, checksum: string): void {
+    if (this.dbPath === undefined) {
+      throw new Error("Cannot restore state: dbPath not provided at construction");
+    }
+
+    const raw = gunzipSync(data);
+    const actual = createHash("sha256").update(raw).digest("hex");
+    if (actual !== checksum) {
+      throw new Error(`Checksum mismatch: expected ${checksum}, got ${actual}`);
+    }
+
+    const newPath = this.dbPath + ".new";
+    writeFileSync(newPath, raw);
   }
 }

@@ -22,6 +22,14 @@ interface TeamCostSummary {
   grand_total_usd: number;
 }
 
+interface QuotaResponse {
+  team_id: string;
+  quota_usd: number;
+  spent_this_period_usd: number;
+  days_until_reset: number;
+  at_capacity: boolean;
+}
+
 interface CostDashboardProps {
   secret: string;
 }
@@ -53,6 +61,28 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
+function getQuotaColor(spentPct: number): string {
+  if (spentPct >= 0.8) return "#f44336"; // red (warning + exceeded)
+  if (spentPct >= 0.5) return "#ff9800"; // amber (caution)
+  return "#4caf50"; // green (on budget)
+}
+
+function getQuotaLabel(spentPct: number, daysRemaining: number): string {
+  const spent = Math.ceil(spentPct * 100);
+  const dayWord = daysRemaining === 1 ? "day" : "days";
+
+  if (spentPct >= 1.0) {
+    return `EXCEEDED — quota hit`;
+  }
+  if (spentPct >= 0.8) {
+    return `Warning — ${spent}% spent, ${daysRemaining} ${dayWord} left`;
+  }
+  if (spentPct >= 0.5) {
+    return `Caution — ${spent}% spent, ${daysRemaining} ${dayWord} left`;
+  }
+  return `On budget — ${spent}% spent, ${daysRemaining} ${dayWord} left`;
+}
+
 export function CostDashboard({ secret }: CostDashboardProps) {
   const { getToken } = useToken(secret);
 
@@ -65,6 +95,7 @@ export function CostDashboard({ secret }: CostDashboardProps) {
     return d.toISOString().slice(0, 10);
   });
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [teamQuotas, setTeamQuotas] = useState<Record<string, QuotaResponse | null>>({});
 
   const getRange = useCallback((): { from: number; to: number } => {
     if (preset === "custom") {
@@ -95,12 +126,41 @@ export function CostDashboard({ secret }: CostDashboardProps) {
     }
   }, [getToken, getRange]);
 
+  const fetchTeamQuota = useCallback(
+    async (teamId: string) => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`/api/v1/costs/teams/${teamId}/quota`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const quota = (await res.json()) as QuotaResponse;
+        setTeamQuotas((prev) => ({ ...prev, [teamId]: quota }));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`[quota] fetch failed for team ${teamId}: ${msg}`);
+      }
+    },
+    [getToken]
+  );
+
   // Auto-refresh every 30s
   useEffect(() => {
     void loadSummary();
     const id = setInterval(() => void loadSummary(), 30_000);
     return () => clearInterval(id);
   }, [loadSummary]);
+
+  // Fetch quota for each team when cost summary is loaded
+  useEffect(() => {
+    if (summary?.teams) {
+      summary.teams.forEach((team) => {
+        if (!teamQuotas[team.team_id]) {
+          void fetchTeamQuota(team.team_id);
+        }
+      });
+    }
+  }, [summary, teamQuotas, fetchTeamQuota]);
 
   const exportCsv = useCallback(async () => {
     try {
@@ -195,18 +255,74 @@ export function CostDashboard({ secret }: CostDashboardProps) {
           {summary.teams
             .sort((a, b) => b.total_cost_usd - a.total_cost_usd)
             .map((team) => {
-              const pct = (team.total_cost_usd / maxCost) * 100;
+              const quota = teamQuotas[team.team_id];
+              const spentPct = quota ? quota.spent_this_period_usd / quota.quota_usd : 0;
+              const quotaColor = quota ? getQuotaColor(spentPct) : "#4caf50";
+              const quotaLabel = quota
+                ? getQuotaLabel(spentPct, quota.days_until_reset)
+                : null;
+
               return (
                 <div key={team.team_id} style={s.teamRow}>
                   <div style={s.teamName}>{team.team_id}</div>
-                  <div style={s.barContainer}>
-                    <div style={{ ...s.bar, width: `${pct}%` }} />
-                  </div>
+
+                  {/* Cost bar with quota overlay */}
+                  {quota ? (
+                    <div style={s.quotaBarContainer}>
+                      <div
+                        style={s.quotaBarBackground}
+                        aria-label={`Team quota: ${fmtCost(quota.spent_this_period_usd)} of ${fmtCost(quota.quota_usd)} USD, ${quota.at_capacity ? "at capacity" : "below quota"}`}
+                      >
+                        {/* Filled portion (actual spend) */}
+                        <div
+                          style={{
+                            ...s.quotaBarFilled,
+                            width: `${Math.min(spentPct * 100, 100)}%`,
+                            background: quotaColor,
+                          }}
+                        />
+                        {/* Diamond marker at quota boundary */}
+                        <div
+                          style={{
+                            ...s.quotaDiamond,
+                            left: `${Math.min(spentPct * 100, 100)}%`,
+                            borderTopColor: quotaColor,
+                            borderBottomColor: quotaColor,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    // Fallback: existing cost bar when no quota data
+                    <div style={s.barContainer}>
+                      <div style={{ ...s.bar, width: `${(team.total_cost_usd / maxCost) * 100}%` }} />
+                    </div>
+                  )}
+
+                  {/* Stats line */}
                   <div style={s.teamStats}>
-                    <span style={s.costLabel}>{fmtCost(team.total_cost_usd)}</span>
+                    {quota ? (
+                      <span
+                        style={s.quotaCostLabel}
+                        aria-label={`Quota: ${fmtCost(quota.spent_this_period_usd)} spent of ${fmtCost(quota.quota_usd)}`}
+                      >
+                        {fmtCost(quota.spent_this_period_usd)} / {fmtCost(quota.quota_usd)}
+                      </span>
+                    ) : (
+                      <span style={s.costLabel}>{fmtCost(team.total_cost_usd)}</span>
+                    )}
                     <span style={s.stat}>{fmtTokens(team.input_tokens + team.output_tokens)} tok</span>
                     <span style={s.stat}>{team.session_count} sessions</span>
                   </div>
+
+                  {/* Quota status label */}
+                  {quotaLabel && (
+                    <div style={s.quotaStatusLabel} aria-live="polite">
+                      {quotaLabel}
+                    </div>
+                  )}
+
+                  {/* Model breakdown */}
                   {Object.keys(team.cost_by_model).length > 0 && (
                     <div style={s.modelBreakdown}>
                       {Object.entries(team.cost_by_model)
@@ -289,6 +405,43 @@ const s = {
   teamStats: { display: "flex", gap: "16px", alignItems: "center" },
   costLabel: { fontSize: "14px", fontWeight: 700, color: "#4caf50" },
   stat: { fontSize: "11px", color: "#555" },
+  quotaBarContainer: {
+    marginBottom: "8px",
+  },
+  quotaBarBackground: {
+    position: "relative" as const,
+    background: "#1a1a1a",
+    borderRadius: "3px",
+    height: "8px",
+    overflow: "hidden" as const,
+  },
+  quotaBarFilled: {
+    height: "100%",
+    borderRadius: "3px",
+    transition: "width 0.3s, background-color 0.3s",
+  },
+  quotaDiamond: {
+    position: "absolute" as const,
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: 0,
+    height: 0,
+    borderLeft: "5px solid transparent",
+    borderRight: "5px solid transparent",
+    borderTop: "5px solid #4caf50",
+    borderBottom: "5px solid #4caf50",
+  },
+  quotaCostLabel: {
+    fontSize: "14px",
+    fontWeight: 700,
+    color: "#e0e0e0",
+  },
+  quotaStatusLabel: {
+    fontSize: "11px",
+    color: "#888",
+    marginTop: "4px",
+    fontStyle: "italic" as const,
+  },
   modelBreakdown: {
     display: "flex", flexWrap: "wrap" as const,
     gap: "6px", marginTop: "8px",

@@ -278,6 +278,11 @@ export class SkillRegistry {
       );
     }
   }
+
+  /** Return the path to the JSON registry file (for backup). */
+  getRegistryPath(): string | undefined {
+    return this.persistPath;
+  }
 }
 
 // ── Semver comparison (major.minor.patch only) ────────────────────────────

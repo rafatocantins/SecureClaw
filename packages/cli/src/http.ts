@@ -40,6 +40,32 @@ export async function apiDelete(url: string, token: string): Promise<unknown> {
   return body;
 }
 
+export async function apiGetBinary(url: string, token: string): Promise<Buffer> {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const body: unknown = await res.json().catch(() => ({}));
+    throw { status: res.status, body } satisfies ApiError;
+  }
+  const arrayBuf = await res.arrayBuffer();
+  return Buffer.from(arrayBuf);
+}
+
+export async function apiPostBinary(url: string, token: string, data: Buffer): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/octet-stream",
+    },
+    body: data,
+  });
+  const body: unknown = await res.json();
+  if (!res.ok && res.status !== 207) throw { status: res.status, body } satisfies ApiError;
+  return { status: res.status, body };
+}
+
 export function printApiError(err: unknown): void {
   if (err && typeof err === "object" && "status" in err) {
     const e = err as ApiError;

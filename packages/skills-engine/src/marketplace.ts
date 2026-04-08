@@ -148,4 +148,9 @@ export class MarketplaceRegistry {
   size(): number {
     return this.entries.size;
   }
+
+  /** Return the path to the marketplace JSON file (for backup). */
+  getMarketplacePath(): string {
+    return this.filePath;
+  }
 }

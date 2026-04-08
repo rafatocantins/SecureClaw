@@ -22,6 +22,7 @@
     "@opentelemetry/resources": "^1.27.0",
     "@opentelemetry/sdk-node": "^0.53.0",
     "@opentelemetry/semantic-conventions": "^1.27.0",
+    "@tessera/alerting": "workspace:*",
     "@tessera/input-sanitizer": "workspace:*",
     "@tessera/shared": "workspace:*",
     "better-sqlite3": "^11.0.0",
