@@ -247,24 +247,28 @@ webhook bodies (same pattern as gateway token).
 
 Estimated effort: 2 sessions.
 
-### 2B — Vault key rotation
+### 2B — Vault key rotation ✅ COMPLETE (T-2-07a/b/c/d, 435 tests)
 
 The vault currently has a single master key (SHA-256 of `VAULT_MASTER_KEY`).
 If the key is compromised all secrets are exposed. This phase adds:
 
-- `tessera vault rotate-key --new-key <hex>` CLI command.
-- Rotation procedure: decrypt all entries with old key → re-encrypt with new
+- ✅ `tessera vault rotate-key --new-key <hex>` CLI command.
+- ✅ Rotation procedure: decrypt all entries with old key → re-encrypt with new
   key → atomic rename of the JSON file → update env var.
-- Key versioning: store `{"v":1, "key_id":"sha256-prefix", "entries":{...}}`
+- ✅ Key versioning: store `{"v":1, "key_id":"sha256-prefix", "entries":{...}}`
   so the system can detect a mismatch between the file's key version and the
   current `VAULT_MASTER_KEY`.
+- ✅ Gateway HTTP route: `POST /api/v1/vault/rotate-key` with audit logging.
+- ✅ gRPC `RotateKey` RPC on VaultService.
+- ✅ Legacy flat file transparent migration on first access.
+- ✅ Key mismatch detection: fail-closed with clear error message.
 
 On Windows/macOS, keytar handles this differently (OS manages key material),
 so rotation only applies to the file-based fallback backend.
 
 Estimated effort: 1 session.
 
-### 2C — Backup & restore
+### 2C — Backup & restore (in progress)
 
 Export/import of all persistent state:
 
@@ -276,6 +280,10 @@ tessera backup restore --input backup-2026-02-26.tar.gz
 Covers: audit DB, vault keys file, skills registry, marketplace registry,
 memory DB. Each service exposes a `DumpState` / `RestoreState` gRPC call, and
 the CLI orchestrates the sequence.
+
+- T-2-08a: DumpState / RestoreState gRPC RPCs in all 4 services ✅
+- T-2-08b: Gateway HTTP backup/restore routes ✅
+- T-2-08c: CLI backup create/restore commands ✅
 
 Estimated effort: 2 sessions.
 
@@ -289,30 +297,169 @@ Estimated effort: 2 sessions.
   forces re-login if session expires. Green/amber/red dot in header.
 - 38 new gateway tests (auth plugin + token route); 266 total.
 
-### 2E — Advanced injection detection
+### 2E — Advanced injection detection ✅ COMPLETE (T-2-09)
 
-Current detection: heuristic regex + optional LLM classifier. Gaps:
-
-- No detection of encoded payloads (base64, URL-encoding, Unicode homoglyphs).
-- No rate-based detection (many small injections across turns).
-
-Additions:
-- Decode-then-scan: strip common encodings before heuristic check.
-- Turn-level injection score: accumulate suspicion across the conversation;
-  escalate to `INJECTION_DETECTED` when score crosses threshold.
-- Configurable sensitivity: `INJECTION_SENSITIVITY=low|medium|high` (default:
-  `medium`).
-
-Estimated effort: 1.5 sessions.
+- ✅ Decode-then-scan: base64 segments, URL-encoding, Unicode NFKD normalization
+- ✅ Turn-level injection score: per-session accumulation; `TURN_SCORE_THRESHOLD_EXCEEDED` injected when threshold crossed
+- ✅ `INJECTION_SENSITIVITY=low|medium|high` env var (default: `medium`) — controls decode layers, severity filter, and score threshold
+- +36 new tests (114 total in input-sanitizer)
 
 ---
 
-## Phase 3 — Enterprise multi-tenancy
+## Pattern Debt (from codebase audit 2026-04-02)
+
+Issues found by auditing against `CLAUDE.md` rules A-L. See `PATTERN-ISSUES.md` for
+full detail, grep commands, and recommended fixes.
+
+### P1 — Blocking / Security (fix before next release)
+
+| ID | Title | Rule | Status |
+|---|---|---|---|
+| PATT-001 | Unconditional `createInsecure()` not guarded by `NODE_ENV` | B.3 | [ ] |
+| PATT-002 | `process.env` read inside service method, not at startup | H.1 | [ ] |
+| PATT-003 | SQL injection surface — parameterization audit needed | J.2 | [ ] |
+
+### P2 — Quality (fix in sprint alongside feature work)
+
+| ID | Title | Rule | Status |
+|---|---|---|---|
+| PATT-004 | Mixed error handling contract in VaultService (throw vs Result) | A.3 | [ ] |
+| PATT-005 | No centralized `config.ts` modules — `process.env` scattered | H.1 | [ ] |
+| PATT-006 | `export *` in shared barrel file leaks internal API | I.4 | [ ] |
+| PATT-007 | `AuditService` constructor calls `prepareStatements()` — track for async migration | D.2 | [ ] |
+| PATT-008 | Fire-and-forget async in WebSocket handler — floating promise | F.4 | [ ] |
+| PATT-009 | Manual TS types duplicating proto definitions — drift risk | E.4 | [ ] |
+| PATT-010 | No per-package `.env.example` — env var discoverability gap | H.4 | [ ] |
+
+### P3 — Style / Technical Debt (fix during UI migration or tech debt sprints)
+
+| ID | Title | Rule | Status |
+|---|---|---|---|
+| UI-001 | Frontend uses inline style objects instead of Tailwind + design tokens | K.2 | [ ] |
+| UI-002 | WebSocket logic inline in Chat component, not a custom hook | K.3 | [ ] |
+| UI-003 | Pending approval count prop-drilled instead of shared state/context | K.2 | [ ] |
+| PATT-011 | Test naming uses free-form "should" descriptions | F.2 | [ ] |
+| PATT-012 | `process.stdout.write` for startup messages (acceptable, document exception) | G.1 | [ ] |
+
+---
+
+## Phase 3 — Adaptive Intelligence
+
+Target: make Tessera learn from interactions, personalize per user, and support
+multi-agent workflows. This is the primary competitive gap vs Hermes Agent,
+CrewAI, and LangGraph. See [`competitive-intel.md`](./competitive-intel.md) for
+full analysis.
+
+Prerequisite: Phase 2B (vault key rotation) complete.
+
+### 3A — Reflection Loop and Lessons Learned (Priority 1)
+
+After each session (or after tool failures), the agent reviews its last N turns
+and extracts structured lessons:
+
+- New `lessons` table in memory-store: `{ id, user_id, lesson_text, source_session_id, category, created_at, access_count, embedding_vector }`
+- Categories: `mistake`, `preference`, `procedure`, `fact`
+- Extraction: at session finalization, call the LLM with a structured extraction prompt ("What went wrong? What would you do differently?"). Parse into lesson records.
+- Retrieval: on session start, retrieve top-5 relevant lessons (by FTS5 initially, by vector similarity once 3B lands) and inject into system prompt as "Prior lessons" section.
+- Mistake detection: after tool execution returns an error or unexpected output, the agent loop adds a self-critique step before retrying (max 2 retries per tool call).
+- Audit: all extracted lessons logged as `LESSON_EXTRACTED` events.
+- CLI: `tessera memory lessons [--user <id>]` — list stored lessons.
+- Security: lessons never contain raw credentials (strip `__VAULT_REF__` patterns via `stripVaultRefs`).
+
+Acceptance criteria:
+- [ ] Agent extracts at least one lesson from a failed tool execution session
+- [ ] Lessons retrieved and injected into system prompt on next session
+- [ ] Self-critique retry improves tool success rate in test scenarios
+- [ ] >= 15 new tests
+
+Estimated effort: 2–3 sessions.
+
+### 3B — Vector/Semantic Memory Retrieval (Priority 2)
+
+Replace keyword-only FTS5 retrieval with hybrid keyword + vector similarity:
+
+- Add `sqlite-vec` extension to memory-store (zero new infrastructure, aligns with easy-install DX).
+- New `embeddings` table: `{ id, source_table, source_id, vector BLOB, model_id, created_at }`
+- Embedding generation: call the configured LLM provider's embedding endpoint (OpenAI `text-embedding-3-small`, or local via Ollama).
+- Hybrid retrieval: combine FTS5 rank + cosine similarity score with configurable weights.
+- Apply to: message search, lesson retrieval, and (future) RAG document retrieval.
+- Env vars: `TESSERA_EMBEDDING_MODEL` (default: provider's default), `TESSERA_EMBEDDING_DIM` (default: 1536).
+- Fallback: if no embedding model configured, gracefully degrade to FTS5-only (no error).
+
+Acceptance criteria:
+- [ ] Embeddings generated for all new messages and lessons
+- [ ] `searchMessages` returns semantically relevant results even without keyword overlap
+- [ ] Graceful degradation when embedding model unavailable
+- [ ] >= 10 new tests
+
+Estimated effort: 2 sessions.
+
+### 3C — User Preference Learning (Priority 3)
+
+Track implicit preferences from user behavior across sessions:
+
+- New `user_preferences` table: `{ id, user_id, preference_key, preference_value, confidence, source, updated_at }`
+- Signals: (a) tool approval patterns (approved/denied → preference for tool autonomy level), (b) response feedback (if user rephrases or corrects → communication preference), (c) explicit preference commands (`tessera prefer --verbose`, `tessera prefer --auto-approve shell_exec`).
+- Preference injection: `buildSecuritySystemPrompt` accepts optional `userPreferences` parameter, appends a "User preferences" section.
+- Privacy: preferences scoped per user_id, deletable via `tessera memory forget --user <id>`.
+- GDPR: `deleteUserData` in memory-store cascades to preferences and lessons.
+
+Acceptance criteria:
+- [ ] Agent behavior visibly adapts based on stored preferences
+- [ ] Preferences extractable from approval history
+- [ ] Full GDPR deletion works for preferences + lessons
+- [ ] >= 10 new tests
+
+Estimated effort: 1.5 sessions.
+
+### 3D — Multi-Agent Orchestration (Priority 4)
+
+Enable an orchestrator agent to delegate sub-tasks to specialist agents:
+
+- New `@tessera/orchestrator` package (or extension to agent-runtime).
+- Orchestrator loop: receives a complex task, decomposes into sub-tasks, assigns each to a specialist agent (researcher, coder, reviewer).
+- Agent-to-agent communication: shared context via memory-store (same session_id, different agent_id).
+- Parallel execution: independent sub-tasks run concurrently via `Promise.all`.
+- Approval: sub-agents inherit the parent session's approval gate (tools requiring approval still go to the human).
+- Security: each sub-agent runs in its own sandbox; no cross-agent credential sharing.
+- Configuration: `tessera-agents.yaml` defines available agent roles, their system prompts, and tool allowlists.
+
+Acceptance criteria:
+- [ ] A research task spawns 2+ parallel sub-agents
+- [ ] Sub-agent tool calls still require human approval when configured
+- [ ] Shared memory visible across agents in the same session
+- [ ] OTel spans link parent and child agent traces
+- [ ] >= 15 new tests
+
+Estimated effort: 3–4 sessions (largest epic in Phase 3).
+
+### 3E — Parallel Tool Execution (Priority 5)
+
+When the LLM returns multiple independent tool calls in a single response,
+execute them concurrently:
+
+- Detect independent tool calls (no data dependency between them).
+- Execute via `Promise.all` on the sandbox gRPC client.
+- Policy engine and approval gate still apply per-tool (approval requests sent in parallel).
+- Aggregate results and feed back to LLM in order.
+- OTel: parallel tool spans share the same parent span.
+
+Acceptance criteria:
+- [ ] 3 independent URL fetches complete in ~1x time instead of ~3x
+- [ ] Approval still required per-tool (no batch auto-approve)
+- [ ] Audit log captures all parallel executions with correct ordering
+- [ ] >= 8 new tests
+
+Estimated effort: 1 session.
+
+---
+
+## Phase 4 — Enterprise multi-tenancy
 
 Target: support multiple independent organisations on one Tessera instance.
-Prerequisite: Phase 2 complete.
+Prerequisite: Phase 3 (at minimum 3A + 3B) complete.
 
-### 3A — RBAC (role-based access control)
+### 4A — RBAC (role-based access control)
 
 Three built-in roles per organisation:
 
@@ -328,7 +475,7 @@ Three built-in roles per organisation:
 
 Estimated effort: 2 sessions.
 
-### 3B — SSO / OIDC integration
+### 4B — SSO / OIDC integration
 
 Allow organisations to authenticate via their existing identity provider
 (Auth0, Okta, Azure AD, Google Workspace):
@@ -342,7 +489,7 @@ Allow organisations to authenticate via their existing identity provider
 
 Estimated effort: 2 sessions.
 
-### 3C — Policy-as-code
+### 4C — Policy-as-code
 
 Currently tool policy is hardcoded in `agent-runtime/src/index.ts`. Replace
 with a declarative YAML policy file:
@@ -371,7 +518,7 @@ tools:
 
 Estimated effort: 1.5 sessions.
 
-### 3D — Audit export (SIEM integration)
+### 4D — Audit export (SIEM integration)
 
 Stream audit events to external systems in real time:
 
@@ -383,7 +530,7 @@ Stream audit events to external systems in real time:
 
 Estimated effort: 1.5 sessions.
 
-### 3E — Organisation isolation
+### 4E — Organisation isolation
 
 Full data isolation between organisations (multi-tenant):
 
@@ -399,12 +546,12 @@ Estimated effort: 3 sessions (significant structural change).
 
 ---
 
-## Phase 4 — AI safety & adversarial robustness
+## Phase 5 — AI safety & adversarial robustness
 
 Target: research-grade safety controls suitable for high-risk AI Act categories.
-Prerequisite: Phase 3 complete.
+Prerequisite: Phase 4 complete.
 
-### 4A — Output filtering
+### 5A — Output filtering
 
 Inspect LLM responses before they reach the user:
 
@@ -413,7 +560,7 @@ Inspect LLM responses before they reach the user:
 - Content policy: configurable blocklist for response content categories.
 - Logged as `OUTPUT_FILTERED` audit events with redacted excerpt.
 
-### 4B — Red team / adversarial testing framework
+### 5B — Red team / adversarial testing framework
 
 - `tessera redteam run --scenario <file>` command: loads a YAML file of
   adversarial prompts, runs them through the agent, reports which were blocked.
@@ -422,7 +569,7 @@ Inspect LLM responses before they reach the user:
 - CI integration: run red team scenarios in CI on every PR; fail if a
   previously-blocked scenario now passes.
 
-### 4C — Formal policy verification
+### 5C — Formal policy verification
 
 - Model tool policies as a finite state machine.
 - Use a lightweight model checker to verify that no sequence of tool calls can
@@ -430,7 +577,7 @@ Inspect LLM responses before they reach the user:
 - `tessera policy verify <file>` — exits non-zero if policy has reachable
   unsafe states.
 
-### 4D — Skill provenance chain
+### 5D — Skill provenance chain
 
 Extend the marketplace with a full provenance chain:
 
@@ -462,10 +609,16 @@ Extend the marketplace with a full provenance chain:
 | 14 | ~~OTel completion — gateway spans + OTLP export~~ ✅ | done | Phase 1 |
 | 15 | ~~Token refresh in Control-UI (proactive refresh + silent reconnect, history preserved)~~ ✅ | done | UX |
 | 16 | ~~Hard quota enforcement per team~~ ✅ | done | Phase 2A |
-| 17 | Webhook alerting (approvals, quota, injection) ⏳ | ~1 session | Phase 2A |
-| 18 | Vault key rotation CLI command | ~1 session | Phase 2B |
-| 19 | Backup / restore CLI commands | ~2 sessions | Phase 2C |
-| 20 | RBAC roles in token + gateway enforcement | ~2 sessions | Phase 3A |
+| 17 | ~~Webhook alerting (approvals, quota, injection)~~ ✅ | done | Phase 2A |
+| 18 | ~~Vault key rotation CLI command~~ ✅ | done | Phase 2B |
+| 19 | ~~Backup / restore CLI commands~~ ✅ | done | Phase 2C |
+| 19b | ~~Advanced injection detection (decode-then-scan + turn score + sensitivity)~~ ✅ | done | Phase 2E |
+| 20 | Reflection loop + lessons learned store | ~2–3 sessions | Phase 3A |
+| 21 | Vector/semantic memory retrieval (sqlite-vec) | ~2 sessions | Phase 3B |
+| 22 | User preference learning | ~1.5 sessions | Phase 3C |
+| 23 | Multi-agent orchestration | ~3–4 sessions | Phase 3D |
+| 24 | Parallel tool execution | ~1 session | Phase 3E |
+| 25 | RBAC roles in token + gateway enforcement | ~2 sessions | Phase 4A |
 
 ---
 

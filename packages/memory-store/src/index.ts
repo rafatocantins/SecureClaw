@@ -28,11 +28,22 @@ if (isMain) {
   const { MemoryService: Svc } = await import("./memory.service.js");
   const { startMemoryGrpcServer: startServer } = await import("./grpc/server.js");
 
+  const { existsSync, renameSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
   const dataDir = process.env["MEMORY_DATA_DIR"] ?? "/data/memory";
+  const dbPath = join(dataDir, "memory.db");
+
+  // Apply pending restore if present (written by RestoreState RPC)
+  const pendingDb = dbPath + ".new";
+  if (existsSync(pendingDb)) {
+    renameSync(pendingDb, dbPath);
+    process.stdout.write("[memory-store] Applied pending restore: memory.db replaced\n");
+  }
 
   try {
     const db = createDb(dataDir);
-    const svc = new Svc(db);
+    const svc = new Svc(db, dbPath);
     const server = await startServer(svc);
 
     process.stdout.write("[memory-store] Service ready\n");

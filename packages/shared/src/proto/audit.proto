@@ -28,6 +28,10 @@ service AuditService {
   rpc SetTeamQuota(SetTeamQuotaRequest) returns (SetTeamQuotaResponse);
   // Check if team has exceeded quota
   rpc CheckQuotaExceeded(CheckQuotaExceededRequest) returns (CheckQuotaExceededResponse);
+  // Dump service state for backup. Returns gzip-compressed bytes.
+  rpc DumpState(DumpStateRequest) returns (DumpStateResponse);
+  // Restore service state from a prior DumpState payload.
+  rpc RestoreState(RestoreStateRequest) returns (RestoreStateResponse);
 }
 
 enum EventType {
@@ -220,4 +224,26 @@ message CheckQuotaExceededResponse {
   bool exceeded = 1;
   double spent_usd = 2;
   double quota_usd = 3;
+}
+
+// ── Backup / Restore ─────────────────────────────────────────────────────
+
+message DumpStateRequest {}
+
+message DumpStateResponse {
+  bytes data = 1;
+  string checksum_sha256 = 2;
+  bool success = 3;
+  string error_message = 4;
+}
+
+message RestoreStateRequest {
+  bytes data = 1;
+  string checksum_sha256 = 2;
+}
+
+message RestoreStateResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool restart_required = 3;
 }

@@ -20,6 +20,12 @@ service VaultService {
   rpc InjectCredential(InjectCredentialRequest) returns (InjectCredentialResponse);
   // Scan a directory for plaintext secrets (.env files, raw keys)
   rpc ScanForPlaintextSecrets(ScanRequest) returns (ScanResponse);
+  // Re-encrypt all vault entries with a new master key (file backend only)
+  rpc RotateKey(RotateKeyRequest) returns (RotateKeyResponse);
+  // Dump service state for backup. Returns gzip-compressed bytes.
+  rpc DumpState(DumpStateRequest) returns (DumpStateResponse);
+  // Restore service state from a prior DumpState payload.
+  rpc RestoreState(RestoreStateRequest) returns (RestoreStateResponse);
 }
 
 message SetSecretRequest {
@@ -85,4 +91,37 @@ message ScanRequest {
 message ScanResponse {
   repeated string warnings = 1;  // Potential issues
   repeated string errors = 2;    // Definite secrets found in plaintext
+}
+
+message RotateKeyRequest {
+  string old_master_key = 1;
+  string new_master_key = 2;
+}
+
+message RotateKeyResponse {
+  bool success = 1;
+  int32 rotated_count = 2;
+  string error_message = 3;
+}
+
+// ── Backup / Restore ─────────────────────────────────────────────────────
+
+message DumpStateRequest {}
+
+message DumpStateResponse {
+  bytes data = 1;              // gzip-compressed archive of this service's files
+  string checksum_sha256 = 2;  // hex SHA-256 of the uncompressed bytes (for verify)
+  bool success = 3;
+  string error_message = 4;
+}
+
+message RestoreStateRequest {
+  bytes data = 1;              // same gzip-compressed archive from DumpState
+  string checksum_sha256 = 2;
+}
+
+message RestoreStateResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool restart_required = 3;   // always true — caller must restart the service
 }

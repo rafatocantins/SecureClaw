@@ -16,7 +16,18 @@ if (isMain) {
   const { VaultService: Svc } = await import("./vault.service.js");
   const { startVaultGrpcServer: start } = await import("./grpc/server.js");
 
+  const { existsSync, renameSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
   const dataDir = process.env["VAULT_DATA_DIR"] ?? "/tmp/tessera-vault";
+
+  // Apply pending restore if present (written by RestoreState RPC)
+  const pendingDb = join(dataDir, "vault-refs.db.new");
+  if (existsSync(pendingDb)) {
+    renameSync(pendingDb, join(dataDir, "vault-refs.db"));
+    process.stdout.write("[vault] Applied pending restore: vault-refs.db replaced\n");
+  }
+
   const svc = new Svc(dataDir);
   await start(svc);
   process.stdout.write("[vault] Service ready\n");

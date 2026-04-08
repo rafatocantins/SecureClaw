@@ -4,6 +4,10 @@
  * All log writes are synchronous (node:sqlite) to ensure durability.
  * Alert rules are evaluated after every write.
  */
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import { nowUtcMs } from "@tessera/shared";
 import type { AuditEvent, AuditSeverity } from "@tessera/shared";
@@ -75,15 +79,17 @@ export interface CheckQuotaExceededResult {
 export class AuditService {
   private db: DatabaseSync;
   private costCapUsd: number;
+  private readonly dbPath: string | undefined;
 
   // Prepared statements (created once for performance)
   private stmtInsertEvent!: StatementSync;
   private stmtInsertAlert!: StatementSync;
   private stmtUpdateSession!: StatementSync;
 
-  constructor(db: DatabaseSync, costCapUsd = 5.0) {
+  constructor(db: DatabaseSync, costCapUsd = 5.0, dbPath?: string) {
     this.db = db;
     this.costCapUsd = costCapUsd;
+    this.dbPath = dbPath;
     this.prepareStatements();
   }
 
@@ -520,5 +526,47 @@ export class AuditService {
       costCapUsd: this.costCapUsd,
       largestOutputBytesThisSession: 0, // TODO: implement if needed
     };
+  }
+
+  /** Return the path to the underlying SQLite database file. */
+  getDbPath(): string | undefined {
+    return this.dbPath;
+  }
+
+  /**
+   * Dump the audit database as gzip-compressed bytes with SHA-256 checksum.
+   * Performs a WAL checkpoint first to ensure the main DB file is up-to-date.
+   */
+  dumpState(): { data: Buffer; checksum: string } {
+    if (this.dbPath === undefined) {
+      throw new Error("Cannot dump state: dbPath not provided at construction");
+    }
+
+    // Checkpoint WAL so all data is in the main file
+    this.db.exec("PRAGMA wal_checkpoint(FULL)");
+
+    const raw = readFileSync(this.dbPath);
+    const checksum = createHash("sha256").update(raw).digest("hex");
+    const compressed = gzipSync(raw);
+    return { data: compressed, checksum };
+  }
+
+  /**
+   * Restore audit state from a gzip-compressed database dump.
+   * Writes to <dir>/audit.db.new; startup migration applies it on next restart.
+   */
+  restoreState(data: Buffer, checksum: string): void {
+    if (this.dbPath === undefined) {
+      throw new Error("Cannot restore state: dbPath not provided at construction");
+    }
+
+    const raw = gunzipSync(data);
+    const actual = createHash("sha256").update(raw).digest("hex");
+    if (actual !== checksum) {
+      throw new Error(`Checksum mismatch: expected ${checksum}, got ${actual}`);
+    }
+
+    const newPath = this.dbPath + ".new";
+    writeFileSync(newPath, raw);
   }
 }

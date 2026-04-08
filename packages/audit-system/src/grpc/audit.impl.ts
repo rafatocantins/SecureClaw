@@ -29,6 +29,10 @@ import type {
   GrpcSetTeamQuotaResponse,
   GrpcCheckQuotaExceededRequest,
   GrpcCheckQuotaExceededResponse,
+  GrpcDumpStateRequest,
+  GrpcDumpStateResponse,
+  GrpcRestoreStateRequest,
+  GrpcRestoreStateResponse,
 } from "@tessera/shared";
 import type { AuditSeverity } from "@tessera/shared";
 
@@ -286,6 +290,48 @@ export function makeAuditImpl(auditSvc: AuditService) {
           exceeded: false,
           spent_usd: 0,
           quota_usd: 0,
+        });
+      }
+    },
+
+    DumpState(
+      _call: UnaryCall<GrpcDumpStateRequest, GrpcDumpStateResponse>,
+      callback: Callback<GrpcDumpStateResponse>
+    ): void {
+      try {
+        const { data, checksum } = auditSvc.dumpState();
+        callback(null, {
+          data,
+          checksum_sha256: checksum,
+          success: true,
+          error_message: "",
+        });
+      } catch (err) {
+        callback(null, {
+          data: Buffer.alloc(0),
+          checksum_sha256: "",
+          success: false,
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+
+    RestoreState(
+      call: UnaryCall<GrpcRestoreStateRequest, GrpcRestoreStateResponse>,
+      callback: Callback<GrpcRestoreStateResponse>
+    ): void {
+      try {
+        auditSvc.restoreState(Buffer.from(call.request.data), call.request.checksum_sha256);
+        callback(null, {
+          success: true,
+          error_message: "",
+          restart_required: true,
+        });
+      } catch (err) {
+        callback(null, {
+          success: false,
+          error_message: err instanceof Error ? err.message : String(err),
+          restart_required: false,
         });
       }
     },

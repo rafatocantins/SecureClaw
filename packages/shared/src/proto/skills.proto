@@ -35,6 +35,10 @@ service SkillsService {
   rpc GetMarketplaceSkill(GetMarketplaceSkillRequest) returns (GetMarketplaceSkillResponse);
   // Install a skill from the marketplace into the local registry.
   rpc InstallFromMarketplace(InstallFromMarketplaceRequest) returns (InstallSkillResponse);
+  // Dump service state for backup. Returns gzip-compressed bytes.
+  rpc DumpState(DumpStateRequest) returns (DumpStateResponse);
+  // Restore service state from a prior DumpState payload.
+  rpc RestoreState(RestoreStateRequest) returns (RestoreStateResponse);
 }
 
 // ── Install ───────────────────────────────────────────────────────────────
@@ -190,4 +194,26 @@ message GetMarketplaceSkillResponse {
 message InstallFromMarketplaceRequest {
   string skill_id = 1;
   string version  = 2;
+}
+
+// ── Backup / Restore ─────────────────────────────────────────────────────
+
+message DumpStateRequest {}
+
+message DumpStateResponse {
+  bytes data = 1;
+  string checksum_sha256 = 2;
+  bool success = 3;
+  string error_message = 4;
+}
+
+message RestoreStateRequest {
+  bytes data = 1;
+  string checksum_sha256 = 2;
+}
+
+message RestoreStateResponse {
+  bool success = 1;
+  string error_message = 2;
+  bool restart_required = 3;
 }

@@ -31,10 +31,24 @@ async function main(): Promise<void> {
   const { loadDotenv } = await import("@tessera/shared");
   loadDotenv();
 
+  const { existsSync, renameSync } = await import("node:fs");
+
   const registryPath =
     process.env["SKILLS_REGISTRY_PATH"] ?? "/tmp/tessera-skills-registry.json";
   const marketplacePath =
     process.env["MARKETPLACE_REGISTRY_PATH"] ?? "/tmp/tessera-marketplace-registry.json";
+
+  // Apply pending restore if present (written by RestoreState RPC)
+  const pendingRegistry = registryPath + ".new";
+  if (existsSync(pendingRegistry)) {
+    renameSync(pendingRegistry, registryPath);
+    process.stdout.write("[skills-engine] Applied pending restore: registry.json replaced\n");
+  }
+  const pendingMarketplace = marketplacePath + ".new";
+  if (existsSync(pendingMarketplace)) {
+    renameSync(pendingMarketplace, marketplacePath);
+    process.stdout.write("[skills-engine] Applied pending restore: marketplace.json replaced\n");
+  }
 
   process.stdout.write("[skills-engine] Starting Phase 2 skills engine\n");
   process.stdout.write(`[skills-engine] Registry path: ${registryPath}\n`);
