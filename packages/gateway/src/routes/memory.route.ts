@@ -29,7 +29,7 @@ export async function memoryRoute(
       req: FastifyRequest<{ Querystring: { limit?: string } }>,
       reply
     ) => {
-      const userId = req.userId; // Always from verified token — never from query params
+      const userId = req.userId ?? ""; // Always from verified token — never from query params
       const limit = Math.min(parseInt(req.query.limit ?? "20", 10) || 20, 100);
       try {
         const lessons = await opts.memoryClient.listLessons(userId, limit);
