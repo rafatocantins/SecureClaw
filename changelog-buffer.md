@@ -7,3 +7,6 @@
 
 ### Refactored — T-2-06
 - refactor(gateway): extract OTel hooks into registerOtelHooks() — TD-01 (`@tessera/gateway`)
+
+### Added — T-4-01
+- feat(gateway): role claim in HMAC token (4-part format: userId.role.ts.sig); `requireRole("admin")` guard on rotate-key, backup restore, and quota PUT routes; token refresh preserves role; CLI `tessera token generate -r admin` (`@tessera/gateway`, `@tessera/cli`)

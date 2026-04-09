@@ -7,7 +7,8 @@
  * - Configurable replay window (TOKEN_EXPIRY_SECONDS, default 300) prevents token replay
  * - No "localhost trust" — authentication is always required
  *
- * Token format: {userId}.{timestamp_ms}.{hmac_sha256(secret, userId:timestamp)}
+ * Token format: {userId}.{role}.{timestamp_ms}.{hmac_sha256(secret, userId:role:timestamp)}
+ * Old 3-part tokens are rejected before any HMAC check.
  */
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { verifyHmac, signHmac, isExpired, nowUtcMs } from "@tessera/shared";
@@ -41,12 +42,34 @@ export function getTokenExpiryMs(): number {
 /**
  * Generate a signed HMAC token for a user.
  * Called by the CLI to generate tokens for configured users.
+ *
+ * The role is baked into the signed payload — a token where the role is
+ * stripped or altered will fail HMAC verification.
  */
-export function generateGatewayToken(userId: string, secret: string): string {
+export function generateGatewayToken(
+  userId: string,
+  secret: string,
+  role: "admin" | "user" = "user",
+): string {
   const timestamp = nowUtcMs().toString();
-  const payload = `${userId}:${timestamp}`;
+  const payload = `${userId}:${role}:${timestamp}`;
   const signature = signHmac(secret, payload);
-  return `${userId}.${timestamp}.${signature}`;
+  return `${userId}.${role}.${timestamp}.${signature}`;
+}
+
+/**
+ * Fastify preHandler that enforces role-based access.
+ * Returns 403 { error: "Forbidden" } if req.role is not in the allowed roles.
+ * Must be placed AFTER verifyToken in the preHandler chain.
+ */
+export function requireRole(
+  ...roles: string[]
+): (req: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  return async function roleGuard(req, reply) {
+    if (!req.role || !roles.includes(req.role)) {
+      await reply.code(403).send({ error: "Forbidden" });
+    }
+  };
 }
 
 /**
@@ -80,7 +103,7 @@ export async function verifyToken(
   const token = authHeader.slice(7).trim();
   const parts = token.split(".");
 
-  if (parts.length !== 3) {
+  if (parts.length !== 4) {
     await reply.code(401).send({
       error: "unauthorized",
       message: "Invalid token format",
@@ -88,7 +111,7 @@ export async function verifyToken(
     return;
   }
 
-  const [userId, timestampStr, signature] = parts as [string, string, string];
+  const [userId, role, timestampStr, signature] = parts as [string, string, string, string];
   const timestamp = parseInt(timestampStr, 10);
 
   if (isNaN(timestamp)) {
@@ -102,15 +125,16 @@ export async function verifyToken(
     return;
   }
 
-  // Constant-time HMAC verification
-  const payload = `${userId}:${timestampStr}`;
+  // Constant-time HMAC verification — role is part of the signed payload
+  const payload = `${userId}:${role}:${timestampStr}`;
   if (!verifyHmac(gatewaySecret, payload, signature)) {
     await reply.code(401).send({ error: "unauthorized", message: "Invalid token signature" });
     return;
   }
 
-  // Attach userId to request for use in route handlers
+  // Attach userId and role to request for use in route handlers and role guards
   req.userId = userId;
+  req.role = role;
 }
 
 /**
@@ -142,9 +166,10 @@ export async function blockTokenInQueryParams(
   }
 }
 
-// Augment FastifyRequest to include userId
+// Augment FastifyRequest to include userId and role
 declare module "fastify" {
   interface FastifyRequest {
     userId?: string | undefined;
+    role?: string | undefined;
   }
 }

@@ -10,7 +10,7 @@
  * Auth: HMAC token required.
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { verifyToken } from "../plugins/auth.plugin.js";
+import { verifyToken, requireRole } from "../plugins/auth.plugin.js";
 import type { AuditGrpcClient } from "../grpc/audit.client.js";
 
 export interface CostsRouteOptions {
@@ -134,40 +134,44 @@ export async function costsRoute(
     }
   );
 
-  // PUT /teams/:teamId/quota — Set team quota
-  fastify.put(
-    "/teams/:teamId/quota",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (
-      req: FastifyRequest<{ Params: { teamId: string }; Body: { quota_usd?: number } }>,
-      reply
-    ) => {
-      const { teamId } = req.params;
-      const body = req.body as Record<string, unknown> | undefined;
-      const quotaVal = body?.["quota_usd"];
-      const quota_usd = typeof quotaVal === "number" ? quotaVal : undefined;
+  // PUT /teams/:teamId/quota — admin-only; wrapped in a scoped plugin for role guard
+  await fastify.register(async (adminScope) => {
+    adminScope.addHook("preHandler", requireRole("admin"));
 
-      // Validate input
-      if (quota_usd === undefined || typeof quota_usd !== "number" || quota_usd < 0) {
-        await reply.code(400).send({ error: "invalid_quota_usd" });
-        return;
+    adminScope.put(
+      "/teams/:teamId/quota",
+      { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+      async (
+        req: FastifyRequest<{ Params: { teamId: string }; Body: { quota_usd?: number } }>,
+        reply
+      ) => {
+        const { teamId } = req.params;
+        const body = req.body as Record<string, unknown> | undefined;
+        const quotaVal = body?.["quota_usd"];
+        const quota_usd = typeof quotaVal === "number" ? quotaVal : undefined;
+
+        // Validate input
+        if (quota_usd === undefined || typeof quota_usd !== "number" || quota_usd < 0) {
+          await reply.code(400).send({ error: "invalid_quota_usd" });
+          return;
+        }
+
+        try {
+          await opts.auditClient.setTeamQuota(teamId, quota_usd);
+
+          // Emit audit event
+          await opts.auditClient.logEvent({
+            event_type: "QUOTA_CONFIGURED",
+            payload: { team_id: teamId, quota_usd },
+            severity: "WARN",
+          });
+
+          await reply.code(204).send();
+        } catch (err) {
+          fastify.log.error({ err }, "Failed to set team quota");
+          await reply.code(502).send({ error: "quota_unavailable" });
+        }
       }
-
-      try {
-        await opts.auditClient.setTeamQuota(teamId, quota_usd);
-
-        // Emit audit event
-        await opts.auditClient.logEvent({
-          event_type: "QUOTA_CONFIGURED",
-          payload: { team_id: teamId, quota_usd },
-          severity: "WARN",
-        });
-
-        await reply.code(204).send();
-      } catch (err) {
-        fastify.log.error({ err }, "Failed to set team quota");
-        await reply.code(502).send({ error: "quota_unavailable" });
-      }
-    }
-  );
+    );
+  });
 }

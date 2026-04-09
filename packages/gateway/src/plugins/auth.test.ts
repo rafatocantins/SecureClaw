@@ -6,6 +6,7 @@ import {
   verifyToken,
   blockTokenInQueryParams,
   getTokenExpiryMs,
+  requireRole,
 } from "./auth.plugin.js";
 
 const SECRET = "test-gateway-secret";
@@ -32,15 +33,16 @@ function makeReply() {
   return reply;
 }
 
-// Minimal Fastify request mock
+// Minimal Fastify request mock (includes role field)
 function makeReq(
   authHeader?: string,
   query: Record<string, string> = {}
-): { headers: Record<string, string>; query: Record<string, string>; userId?: string } {
+): { headers: Record<string, string>; query: Record<string, string>; userId?: string; role?: string } {
   return {
     headers: authHeader ? { authorization: authHeader } : {},
     query,
     userId: undefined,
+    role: undefined,
   };
 }
 
@@ -90,10 +92,10 @@ describe("getTokenExpiryMs", () => {
 });
 
 describe("generateGatewayToken", () => {
-  it("produces a token with three dot-separated parts", () => {
+  it("produces a token with four dot-separated parts", () => {
     const token = generateGatewayToken("alice", SECRET);
     const parts = token.split(".");
-    expect(parts).toHaveLength(3);
+    expect(parts).toHaveLength(4);
   });
 
   it("first part is the userId", () => {
@@ -101,16 +103,30 @@ describe("generateGatewayToken", () => {
     expect(token.startsWith("alice.")).toBe(true);
   });
 
-  it("second part is a numeric timestamp", () => {
+  it("second part is the role (defaults to user)", () => {
     const token = generateGatewayToken("alice", SECRET);
-    const [, ts] = token.split(".");
+    const [, role] = token.split(".");
+    expect(role).toBe("user");
+  });
+
+  it("second part is admin when role is explicitly admin", () => {
+    const token = generateGatewayToken("alice", SECRET, "admin");
+    const [, role] = token.split(".");
+    expect(role).toBe("admin");
+  });
+
+  it("third part (index 2) is a numeric timestamp", () => {
+    const token = generateGatewayToken("alice", SECRET);
+    const parts = token.split(".");
+    const ts = parts[2];
     expect(Number.isInteger(Number(ts))).toBe(true);
     expect(Number(ts)).toBeGreaterThan(0);
   });
 
-  it("third part is a hex HMAC signature", () => {
+  it("fourth part (index 3) is a hex HMAC signature", () => {
     const token = generateGatewayToken("alice", SECRET);
-    const [, , sig] = token.split(".");
+    const parts = token.split(".");
+    const sig = parts[3];
     expect(sig).toMatch(/^[0-9a-f]+$/);
   });
 
@@ -145,6 +161,29 @@ describe("verifyToken", () => {
     expect(req.userId).toBe("bob");
   });
 
+  it("attaches role from token", async () => {
+    const token = generateGatewayToken("alice", SECRET, "admin");
+    const req = makeReq(`Bearer ${token}`);
+    const reply = makeReply();
+
+    await verifyToken(req as never, reply as never);
+
+    expect(reply.statusCode).toBe(200);
+    expect(req.userId).toBe("alice");
+    expect(req.role).toBe("admin");
+  });
+
+  it("attaches user role when token has user role", async () => {
+    const token = generateGatewayToken("bob", SECRET, "user");
+    const req = makeReq(`Bearer ${token}`);
+    const reply = makeReply();
+
+    await verifyToken(req as never, reply as never);
+
+    expect(reply.statusCode).toBe(200);
+    expect(req.role).toBe("user");
+  });
+
   it("rejects a request with no Authorization header", async () => {
     const req = makeReq();
     const reply = makeReply();
@@ -164,6 +203,17 @@ describe("verifyToken", () => {
     expect(reply.statusCode).toBe(401);
   });
 
+  it("rejects 3-part legacy token with 401", async () => {
+    // Old 3-part format: userId.timestamp.sig
+    const req = makeReq("Bearer alice.1700000000000.deadbeef");
+    const reply = makeReply();
+
+    await verifyToken(req as never, reply as never);
+
+    expect(reply.statusCode).toBe(401);
+    expect((reply.body as { message: string }).message).toMatch(/format/i);
+  });
+
   it("rejects a token with fewer than 3 parts", async () => {
     const req = makeReq("Bearer alice.nohex");
     const reply = makeReply();
@@ -175,7 +225,7 @@ describe("verifyToken", () => {
   });
 
   it("rejects a token with a non-numeric timestamp", async () => {
-    const req = makeReq("Bearer alice.notanumber.deadbeef");
+    const req = makeReq("Bearer alice.user.notanumber.deadbeef");
     const reply = makeReply();
 
     await verifyToken(req as never, reply as never);
@@ -237,9 +287,10 @@ describe("verifyToken", () => {
 
   it("rejects a token with a tampered signature", async () => {
     const token = generateGatewayToken("eve", SECRET);
-    const [userId, ts, sig] = token.split(".");
-    const tampered = sig!.slice(0, -1) + (sig!.endsWith("a") ? "b" : "a");
-    const req = makeReq(`Bearer ${userId}.${ts}.${tampered}`);
+    const parts = token.split(".");
+    const sig = parts[3]!;
+    const tampered = sig.slice(0, -1) + (sig.endsWith("a") ? "b" : "a");
+    const req = makeReq(`Bearer ${parts[0]}.${parts[1]}.${parts[2]}.${tampered}`);
     const reply = makeReply();
 
     await verifyToken(req as never, reply as never);
@@ -247,16 +298,72 @@ describe("verifyToken", () => {
     expect(reply.statusCode).toBe(401);
   });
 
-  it("rejects a token with a tampered userId (payload mismatch)", async () => {
-    const token = generateGatewayToken("frank", SECRET);
-    const [, ts, sig] = token.split(".");
-    // Change userId but keep original signature
-    const req = makeReq(`Bearer hacker.${ts}.${sig}`);
+  it("rejects token with tampered role", async () => {
+    const token = generateGatewayToken("frank", SECRET, "user");
+    const parts = token.split(".");
+    // Tamper role from "user" to "admin" but keep original signature
+    const tampered = `${parts[0]}.admin.${parts[2]}.${parts[3]}`;
+    const req = makeReq(`Bearer ${tampered}`);
     const reply = makeReply();
 
     await verifyToken(req as never, reply as never);
 
     expect(reply.statusCode).toBe(401);
+    expect((reply.body as { message: string }).message).toMatch(/signature/i);
+  });
+
+  it("rejects a token with a tampered userId (payload mismatch)", async () => {
+    const token = generateGatewayToken("frank", SECRET);
+    const parts = token.split(".");
+    // Change userId but keep original signature
+    const req = makeReq(`Bearer hacker.${parts[1]}.${parts[2]}.${parts[3]}`);
+    const reply = makeReply();
+
+    await verifyToken(req as never, reply as never);
+
+    expect(reply.statusCode).toBe(401);
+  });
+});
+
+describe("requireRole", () => {
+  it("allows request with matching role", async () => {
+    const req = { ...makeReq(), role: "admin" };
+    const reply = makeReply();
+
+    await requireRole("admin")(req as never, reply as never);
+
+    expect(reply.statusCode).toBe(200);
+    expect(reply.body).toBeUndefined();
+  });
+
+  it("allows request with one of multiple allowed roles", async () => {
+    const req = { ...makeReq(), role: "user" };
+    const reply = makeReply();
+
+    await requireRole("admin", "user")(req as never, reply as never);
+
+    expect(reply.statusCode).toBe(200);
+    expect(reply.body).toBeUndefined();
+  });
+
+  it("blocks request with non-matching role with 403", async () => {
+    const req = { ...makeReq(), role: "user" };
+    const reply = makeReply();
+
+    await requireRole("admin")(req as never, reply as never);
+
+    expect(reply.statusCode).toBe(403);
+    expect((reply.body as { error: string }).error).toBe("Forbidden");
+  });
+
+  it("blocks request with undefined role with 403", async () => {
+    const req = { ...makeReq(), role: undefined };
+    const reply = makeReply();
+
+    await requireRole("admin")(req as never, reply as never);
+
+    expect(reply.statusCode).toBe(403);
+    expect((reply.body as { error: string }).error).toBe("Forbidden");
   });
 });
 

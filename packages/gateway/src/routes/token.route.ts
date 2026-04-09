@@ -50,7 +50,8 @@ export async function tokenRoute(fastify: FastifyInstance): Promise<void> {
         return;
       }
 
-      const token = generateGatewayToken(userId, secret);
+      const role = (req.role === "admin" ? "admin" : "user") as "admin" | "user";
+      const token = generateGatewayToken(userId, secret, role);
       const expiresInSeconds = Math.floor(getTokenExpiryMs() / 1000);
 
       await reply.send({ token, expires_in_seconds: expiresInSeconds });

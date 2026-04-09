@@ -4,7 +4,7 @@
  * generate: Creates a signed HMAC bearer token locally.
  * refresh:  Exchanges an existing valid token for a fresh one via the gateway.
  *
- * Token format: {userId}.{timestamp_ms}.{hmac_sha256(secret, userId:timestamp)}
+ * Token format: {userId}.{role}.{timestamp_ms}.{hmac_sha256(secret, userId:role:timestamp)}
  * This mirrors the logic in packages/gateway/src/plugins/auth.plugin.ts
  */
 import { Command } from "commander";
@@ -12,11 +12,11 @@ import { signHmac, nowUtcMs } from "@tessera/shared";
 import { printApiError } from "../http.js";
 
 /** Replicate gateway token generation without importing the gateway package. */
-function makeToken(userId: string, secret: string): string {
+function makeToken(userId: string, secret: string, role: "admin" | "user"): string {
   const timestamp = nowUtcMs().toString();
-  const payload = `${userId}:${timestamp}`;
+  const payload = `${userId}:${role}:${timestamp}`;
   const signature = signHmac(secret, payload);
-  return `${userId}.${timestamp}.${signature}`;
+  return `${userId}.${role}.${timestamp}.${signature}`;
 }
 
 export function tokenCommand(): Command {
@@ -30,7 +30,12 @@ export function tokenCommand(): Command {
       "-s, --secret <secret>",
       "HMAC secret (defaults to $GATEWAY_HMAC_SECRET)"
     )
-    .action((opts: { user: string; secret?: string }) => {
+    .option(
+      "-r, --role <role>",
+      "Role to embed in the token: admin or user (default: user)",
+      "user"
+    )
+    .action((opts: { user: string; secret?: string; role: string }) => {
       const secret = opts.secret ?? process.env["GATEWAY_HMAC_SECRET"];
       if (!secret) {
         process.stderr.write(
@@ -38,7 +43,14 @@ export function tokenCommand(): Command {
         );
         process.exit(1);
       }
-      const token = makeToken(opts.user, secret);
+      if (opts.role !== "admin" && opts.role !== "user") {
+        process.stderr.write(
+          `error: invalid role '${opts.role}' — must be 'admin' or 'user'\n`
+        );
+        process.exit(1);
+      }
+      const role = opts.role as "admin" | "user";
+      const token = makeToken(opts.user, secret, role);
       process.stdout.write(token + "\n");
     });
 

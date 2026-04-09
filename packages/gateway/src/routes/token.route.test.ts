@@ -70,8 +70,40 @@ describe("POST /api/v1/token/refresh", () => {
     const body = res.json<{ token: string; expires_in_seconds: number }>();
     expect(typeof body.token).toBe("string");
     expect(body.token.startsWith("refresh-user.")).toBe(true);
-    expect(body.token.split(".")).toHaveLength(3);
+    expect(body.token.split(".")).toHaveLength(4);
     expect(body.expires_in_seconds).toBe(300);
+  });
+
+  it("refreshed token preserves admin role", async () => {
+    const app = await buildApp();
+    const token = generateGatewayToken("admin-user", SECRET, "admin");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/token/refresh",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ token: string }>();
+    const parts = body.token.split(".");
+    expect(parts[1]).toBe("admin");
+  });
+
+  it("refreshed token preserves user role", async () => {
+    const app = await buildApp();
+    const token = generateGatewayToken("regular-user", SECRET, "user");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/token/refresh",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ token: string }>();
+    const parts = body.token.split(".");
+    expect(parts[1]).toBe("user");
   });
 
   it("returns expires_in_seconds matching TOKEN_EXPIRY_SECONDS", async () => {

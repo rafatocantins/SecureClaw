@@ -13,7 +13,8 @@ import { setGatewaySecret, generateGatewayToken } from "../plugins/auth.plugin.j
 import { backupRoute } from "./backup.route.js";
 
 const SECRET = "test-backup-secret-xyz789";
-const VALID_TOKEN = () => generateGatewayToken("admin-user", SECRET);
+const VALID_TOKEN = () => generateGatewayToken("admin-user", SECRET, "admin");
+const USER_TOKEN = () => generateGatewayToken("regular-user", SECRET, "user");
 
 const FAKE_DUMP = {
   data: Buffer.from("fake-compressed-data"),
@@ -414,5 +415,37 @@ describe("POST /api/v1/backup/restore", () => {
       payload: archive,
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("403: user-role token is forbidden on restore", async () => {
+    const archive = await makeValidArchive();
+    const { app } = await buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/backup/restore",
+      headers: {
+        Authorization: `Bearer ${USER_TOKEN()}`,
+        "Content-Type": "application/octet-stream",
+      },
+      payload: archive,
+    });
+    expect(res.statusCode).toBe(403);
+    const body = res.json<{ error: string }>();
+    expect(body.error).toBe("Forbidden");
+  });
+});
+
+describe("GET /api/v1/backup — role access", () => {
+  beforeEach(() => setGatewaySecret(SECRET));
+  afterEach(() => setGatewaySecret(""));
+
+  it("200: user-role token can create a backup", async () => {
+    const { app } = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/backup",
+      headers: { Authorization: `Bearer ${USER_TOKEN()}` },
+    });
+    expect(res.statusCode).toBe(200);
   });
 });
