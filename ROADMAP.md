@@ -618,7 +618,7 @@ Extend the marketplace with a full provenance chain:
 | 22 | User preference learning | ~1.5 sessions | Phase 3C |
 | 23 | Multi-agent orchestration | ~3–4 sessions | Phase 3D |
 | 24 | Parallel tool execution | ~1 session | Phase 3E |
-| 25 | RBAC roles in token + gateway enforcement | ~2 sessions | Phase 4A |
+| 25 | ~~RBAC roles in token + gateway enforcement (T-4-01)~~ ✅ | done | Phase 4A |
 
 ---
 
