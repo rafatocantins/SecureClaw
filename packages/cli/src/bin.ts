@@ -12,6 +12,7 @@
  *   tessera skill keygen|sign|install-local|publish|list|install|installed
  *   tessera vault store|list|delete|rotate-key
  *   tessera backup create|restore
+ *   tessera memory lessons --user <id>
  *
  * Environment variables (can be set in .env — run `tessera init`):
  *   GATEWAY_HMAC_SECRET  — HMAC secret for token generation
@@ -29,6 +30,7 @@ import { skillCommand } from "./commands/skill.js";
 import { vaultCommand } from "./commands/vault.js";
 import { initCommand } from "./commands/init.js";
 import { backupCommand } from "./commands/backup.js";
+import { memoryCommand } from "./commands/memory.js";
 
 const program = new Command();
 
@@ -44,5 +46,6 @@ program.addCommand(healthCommand());
 program.addCommand(skillCommand());
 program.addCommand(vaultCommand());
 program.addCommand(backupCommand());
+program.addCommand(memoryCommand());
 
 program.parse();

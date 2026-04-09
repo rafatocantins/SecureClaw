@@ -613,7 +613,7 @@ Extend the marketplace with a full provenance chain:
 | 18 | ~~Vault key rotation CLI command~~ ✅ | done | Phase 2B |
 | 19 | ~~Backup / restore CLI commands~~ ✅ | done | Phase 2C |
 | 19b | ~~Advanced injection detection (decode-then-scan + turn score + sensitivity)~~ ✅ | done | Phase 2E |
-| 20 | Reflection loop + lessons learned store | ~2–3 sessions | Phase 3A |
+| 20 | ~~Reflection loop + lessons learned store (T-3-01)~~ ✅ | done | Phase 3A |
 | 21 | Vector/semantic memory retrieval (sqlite-vec) | ~2 sessions | Phase 3B |
 | 22 | User preference learning | ~1.5 sessions | Phase 3C |
 | 23 | Multi-agent orchestration | ~3–4 sessions | Phase 3D |

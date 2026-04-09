@@ -9,6 +9,24 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 
+export type LessonCategory = "mistake" | "preference" | "procedure" | "fact";
+
+export interface StoredLesson {
+  id: number;
+  user_id: string;
+  source_session_id: string;
+  lesson_text: string;
+  category: LessonCategory;
+  created_at: number;
+  access_count: number;
+}
+
+export interface StoreLessonsParams {
+  source_session_id: string;
+  user_id: string;
+  lessons: Array<{ lesson_text: string; category: LessonCategory }>;
+}
+
 export interface StoredMessage {
   id: number;
   session_id: string;
@@ -59,6 +77,13 @@ export class MemoryService {
   private stmtRecentMessages!: StatementSync;
   private stmtCountUserMessages!: StatementSync;
   private stmtDeleteUserSessions!: StatementSync;
+  // Lessons
+  private stmtInsertLesson!: StatementSync;
+  private stmtGetRelevantLessons!: StatementSync;
+  private stmtListLessons!: StatementSync;
+  private stmtIncrementLessonAccess!: StatementSync;
+  private stmtDeleteUserLessons!: StatementSync;
+  private stmtCountUserLessons!: StatementSync;
 
   constructor(db: DatabaseSync, dbPath?: string) {
     this.db = db;
@@ -104,6 +129,46 @@ export class MemoryService {
     // ON DELETE CASCADE on messages.session_id handles message cleanup automatically
     this.stmtDeleteUserSessions = this.db.prepare(
       `DELETE FROM sessions WHERE user_id = ?`
+    );
+
+    // ── Lessons ──────────────────────────────────────────────────────────────
+    this.stmtInsertLesson = this.db.prepare(
+      `INSERT OR IGNORE INTO lessons
+         (user_id, source_session_id, lesson_text, category, created_at, access_count)
+       VALUES (?, ?, ?, ?, ?, 0)`
+    );
+
+    // FTS5 relevance search
+    this.stmtGetRelevantLessons = this.db.prepare(
+      `SELECT l.id, l.user_id, l.source_session_id, l.lesson_text,
+              l.category, l.created_at, l.access_count
+       FROM lessons l
+       JOIN lessons_fts fts ON l.id = fts.rowid
+       WHERE fts.lessons_fts MATCH ?
+         AND l.user_id = ?
+       ORDER BY rank
+       LIMIT ?`
+    );
+
+    this.stmtListLessons = this.db.prepare(
+      `SELECT id, user_id, source_session_id, lesson_text,
+              category, created_at, access_count
+       FROM lessons
+       WHERE user_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`
+    );
+
+    this.stmtIncrementLessonAccess = this.db.prepare(
+      `UPDATE lessons SET access_count = access_count + 1 WHERE id = ?`
+    );
+
+    this.stmtDeleteUserLessons = this.db.prepare(
+      `DELETE FROM lessons WHERE user_id = ?`
+    );
+
+    this.stmtCountUserLessons = this.db.prepare(
+      `SELECT COUNT(*) as count FROM lessons WHERE user_id = ?`
     );
   }
 
@@ -184,14 +249,71 @@ export class MemoryService {
   }
 
   /**
-   * Delete all sessions and messages for a user (GDPR / right-to-erasure).
+   * Delete all sessions, messages, and lessons for a user (GDPR / right-to-erasure).
    * Returns the number of messages deleted before cascade removal.
    */
   deleteUserData(userId: string): number {
     const row = this.stmtCountUserMessages.get(userId) as { count: number };
     const messageCount = row.count;
+    this.stmtDeleteUserLessons.run(userId);
     this.stmtDeleteUserSessions.run(userId);
     return messageCount;
+  }
+
+  /**
+   * Store extracted lessons for a session. Silently skips duplicates
+   * (same user_id + lesson_text in the same session via OR IGNORE on a
+   * unique index — see schema).
+   * Returns the number of lessons actually inserted.
+   */
+  storeLessons(params: StoreLessonsParams): number {
+    let stored = 0;
+    const now = Date.now();
+    for (const lesson of params.lessons) {
+      const result = this.stmtInsertLesson.run(
+        params.user_id,
+        params.source_session_id,
+        lesson.lesson_text,
+        lesson.category,
+        now,
+      );
+      if (result.changes > 0) stored++;
+    }
+    return stored;
+  }
+
+  /**
+   * Retrieve relevant lessons for a user.
+   * If `query` is non-empty, performs an FTS5 search ranked by relevance.
+   * If `query` is empty, returns the most-recent lessons by created_at.
+   * Increments access_count for every lesson returned.
+   */
+  getRelevantLessons(userId: string, query: string, limit = 5): StoredLesson[] {
+    const capped = Math.min(limit, 20);
+    let rows: StoredLesson[];
+
+    if (query.trim().length > 0) {
+      rows = this.stmtGetRelevantLessons.all(
+        query,
+        userId,
+        capped,
+      ) as unknown as StoredLesson[];
+    } else {
+      rows = this.stmtListLessons.all(userId, capped) as unknown as StoredLesson[];
+    }
+
+    for (const row of rows) {
+      this.stmtIncrementLessonAccess.run(row.id);
+    }
+    return rows;
+  }
+
+  /**
+   * List all lessons for a user ordered by recency. Used by CLI and admin routes.
+   */
+  listLessons(userId: string, limit = 20): StoredLesson[] {
+    const capped = Math.min(limit, 100);
+    return this.stmtListLessons.all(userId, capped) as unknown as StoredLesson[];
   }
 
   /** Return the path to the underlying SQLite database file. */

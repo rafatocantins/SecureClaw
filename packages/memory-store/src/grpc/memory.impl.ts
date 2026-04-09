@@ -24,7 +24,15 @@ import type {
   GrpcDumpStateResponse,
   GrpcRestoreStateRequest,
   GrpcRestoreStateResponse,
+  GrpcStoreLessonsRequest,
+  GrpcStoreLessonsResponse,
+  GrpcGetRelevantLessonsRequest,
+  GrpcGetRelevantLessonsResponse,
+  GrpcListLessonsRequest,
+  GrpcListLessonsResponse,
+  GrpcStoredLesson,
 } from "@tessera/shared";
+import type { LessonCategory } from "../memory.service.js";
 
 type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type StreamCall<Req, Res> = grpc.ServerWritableStream<Req, Res>;
@@ -198,6 +206,77 @@ export function makeMemoryImpl(memorySvc: MemoryService) {
           error_message: err instanceof Error ? err.message : String(err),
           restart_required: false,
         });
+      }
+    },
+
+    StoreLessons(
+      call: UnaryCall<GrpcStoreLessonsRequest, GrpcStoreLessonsResponse>,
+      callback: Callback<GrpcStoreLessonsResponse>
+    ): void {
+      try {
+        const { source_session_id, user_id, lessons } = call.request;
+        const validCategories = new Set(["mistake", "preference", "procedure", "fact"]);
+        const validLessons = (lessons ?? [])
+          .filter((l) => l.lesson_text?.trim().length > 0 && validCategories.has(l.category))
+          .map((l) => ({
+            lesson_text: l.lesson_text.trim().slice(0, 150),
+            category: l.category as LessonCategory,
+          }));
+        const stored_count = memorySvc.storeLessons({
+          source_session_id,
+          user_id,
+          lessons: validLessons,
+        });
+        callback(null, { stored_count, success: true });
+      } catch (err) {
+        process.stderr.write(`[memory-grpc] storeLessons error: ${String(err)}\n`);
+        callback(null, { stored_count: 0, success: false });
+      }
+    },
+
+    GetRelevantLessons(
+      call: UnaryCall<GrpcGetRelevantLessonsRequest, GrpcGetRelevantLessonsResponse>,
+      callback: Callback<GrpcGetRelevantLessonsResponse>
+    ): void {
+      try {
+        const { user_id, query, limit } = call.request;
+        const rows = memorySvc.getRelevantLessons(user_id, query ?? "", limit || 5);
+        const lessons: GrpcStoredLesson[] = rows.map((r) => ({
+          id: r.id,
+          user_id: r.user_id,
+          source_session_id: r.source_session_id,
+          lesson_text: r.lesson_text,
+          category: r.category,
+          created_at: r.created_at,
+          access_count: r.access_count,
+        }));
+        callback(null, { lessons });
+      } catch (err) {
+        process.stderr.write(`[memory-grpc] getRelevantLessons error: ${String(err)}\n`);
+        callback(null, { lessons: [] });
+      }
+    },
+
+    ListLessons(
+      call: UnaryCall<GrpcListLessonsRequest, GrpcListLessonsResponse>,
+      callback: Callback<GrpcListLessonsResponse>
+    ): void {
+      try {
+        const { user_id, limit } = call.request;
+        const rows = memorySvc.listLessons(user_id, limit || 20);
+        const lessons: GrpcStoredLesson[] = rows.map((r) => ({
+          id: r.id,
+          user_id: r.user_id,
+          source_session_id: r.source_session_id,
+          lesson_text: r.lesson_text,
+          category: r.category,
+          created_at: r.created_at,
+          access_count: r.access_count,
+        }));
+        callback(null, { lessons });
+      } catch (err) {
+        process.stderr.write(`[memory-grpc] listLessons error: ${String(err)}\n`);
+        callback(null, { lessons: [] });
       }
     },
   };

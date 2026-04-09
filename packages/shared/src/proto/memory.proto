@@ -21,6 +21,12 @@ service MemoryService {
   rpc DumpState(DumpStateRequest) returns (DumpStateResponse);
   // Restore service state from a prior DumpState payload.
   rpc RestoreState(RestoreStateRequest) returns (RestoreStateResponse);
+  // Store extracted lessons for a user after a session.
+  rpc StoreLessons(StoreLessonsRequest) returns (StoreLessonsResponse);
+  // Retrieve relevant lessons for a user (FTS5 if query provided, else most-recent).
+  rpc GetRelevantLessons(GetRelevantLessonsRequest) returns (GetRelevantLessonsResponse);
+  // List all lessons for a user (admin / CLI use).
+  rpc ListLessons(ListLessonsRequest) returns (ListLessonsResponse);
 }
 
 message StoreSessionRequest {
@@ -97,6 +103,53 @@ message DeleteUserDataRequest {
 message DeleteUserDataResponse {
   int64 deleted_count = 1;  // number of messages deleted
   bool  success       = 2;
+}
+
+// ── Lessons ──────────────────────────────────────────────────────────────
+
+message LessonInput {
+  string lesson_text        = 1;  // ≤ 150 chars, vault refs stripped
+  string category           = 2;  // mistake | preference | procedure | fact
+}
+
+message StoredLesson {
+  int64  id                 = 1;
+  string user_id            = 2;
+  string source_session_id  = 3;
+  string lesson_text        = 4;
+  string category           = 5;
+  int64  created_at         = 6;  // unix ms
+  int32  access_count       = 7;
+}
+
+message StoreLessonsRequest {
+  string source_session_id  = 1;
+  string user_id            = 2;
+  repeated LessonInput lessons = 3;
+}
+
+message StoreLessonsResponse {
+  int32 stored_count = 1;
+  bool  success      = 2;
+}
+
+message GetRelevantLessonsRequest {
+  string user_id = 1;
+  string query   = 2;  // FTS5 query; empty = return most-recent
+  int32  limit   = 3;  // default 5
+}
+
+message GetRelevantLessonsResponse {
+  repeated StoredLesson lessons = 1;
+}
+
+message ListLessonsRequest {
+  string user_id = 1;
+  int32  limit   = 2;  // default 20
+}
+
+message ListLessonsResponse {
+  repeated StoredLesson lessons = 1;
 }
 
 // ── Backup / Restore ─────────────────────────────────────────────────────

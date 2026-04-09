@@ -41,6 +41,8 @@ function makeCtx(overrides: Partial<SessionContext> = {}): SessionContext {
     tool_call_count: 0,
     status: "active",
     last_activity_at: Date.now(),
+    priorLessons: [],
+    hadToolFailure: false,
     ...overrides,
   };
 }
