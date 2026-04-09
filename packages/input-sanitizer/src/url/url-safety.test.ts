@@ -194,6 +194,41 @@ describe("checkUrlSafety — private and loopback IPs", () => {
     expect(r.safe).toBe(false);
     expect(r.category).toBe("private_ip");
   });
+
+  // T-4-04 — IPv4-mapped IPv6 addresses bypass the old regex
+  it("T-4-04: blocks IPv4-mapped IPv6 loopback ::ffff:127.0.0.1", () => {
+    const r = checkUrlSafety("https://[::ffff:127.0.0.1]/");
+    expect(r.safe).toBe(false);
+    expect(r.category).toBe("private_ip");
+  });
+
+  it("T-4-04: blocks IPv4-mapped IPv6 RFC-1918 ::ffff:10.0.0.1", () => {
+    const r = checkUrlSafety("https://[::ffff:10.0.0.1]/");
+    expect(r.safe).toBe(false);
+    expect(r.category).toBe("private_ip");
+  });
+
+  it("T-4-04: blocks IPv4-mapped IPv6 RFC-1918 ::ffff:192.168.1.1", () => {
+    const r = checkUrlSafety("https://[::ffff:192.168.1.1]/");
+    expect(r.safe).toBe(false);
+    expect(r.category).toBe("private_ip");
+  });
+
+  it("T-4-04: blocks IPv4-mapped IPv6 AWS metadata ::ffff:169.254.169.254", () => {
+    const r = checkUrlSafety("https://[::ffff:169.254.169.254]/latest/meta-data/");
+    expect(r.safe).toBe(false);
+    // 169.254.169.254 matches METADATA_HOSTNAMES check first, or private_ip via IPv4-mapped
+    expect(["metadata_endpoint", "private_ip"]).toContain(r.category);
+  });
+
+  it("T-4-04: blocks all ::ffff: addresses including public ones (no legitimate URL use-case)", () => {
+    // IPv4-mapped IPv6 is blocked wholesale — use the plain IPv4 URL instead.
+    // Node.js normalises decimal to hex so we cannot safely distinguish private
+    // from public in this form; blocking all is the correct defence.
+    const r = checkUrlSafety("https://[::ffff:1.1.1.1]/");
+    expect(r.safe).toBe(false);
+    expect(r.category).toBe("private_ip");
+  });
 });
 
 // ── Localhost names ───────────────────────────────────────────────────────────
@@ -384,5 +419,21 @@ describe("checkUrlSafetyResolved", () => {
     expect(r.safe).toBe(false);
     expect(r.category).toBe("private_ip");
     expect(mockedLookup).not.toHaveBeenCalled();
+  });
+
+  // T-4-04 — IPv4-mapped IPv6 returned by DNS resolver (in hex form as returned by lookup)
+  it("T-4-04: blocks hostname resolving to IPv4-mapped loopback ::ffff:7f00:1", async () => {
+    mockedLookup.mockResolvedValue([{ address: "::ffff:7f00:1", family: 6 }] as never);
+    const r = await checkUrlSafetyResolved("https://evil.example.com/");
+    expect(r.safe).toBe(false);
+    expect(r.category).toBe("private_ip");
+    expect(r.reason).toContain("DNS rebinding");
+  });
+
+  it("T-4-04: blocks hostname resolving to IPv4-mapped private ::ffff:a00:1 (10.0.0.1)", async () => {
+    mockedLookup.mockResolvedValue([{ address: "::ffff:a00:1", family: 6 }] as never);
+    const r = await checkUrlSafetyResolved("https://evil.example.com/");
+    expect(r.safe).toBe(false);
+    expect(r.category).toBe("private_ip");
   });
 });
