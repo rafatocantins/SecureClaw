@@ -9,15 +9,16 @@ import { useState, type FormEvent } from "react";
 import { useToken } from "../hooks/useToken.js";
 
 interface LoginProps {
-  onLogin: (secret: string) => void;
+  onLogin: (secret: string, role: "admin" | "user") => void;
 }
 
 export function Login({ onLogin }: LoginProps) {
   const [secret, setSecret] = useState("");
+  const [role, setRole] = useState<"admin" | "user">("user");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { getToken } = useToken(secret);
+  const { getToken } = useToken(secret, role);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -35,7 +36,7 @@ export function Login({ onLogin }: LoginProps) {
         setError(`Gateway returned ${res.status} — check the secret.`);
         return;
       }
-      onLogin(secret.trim());
+      onLogin(secret.trim(), role);
     } catch {
       setError("Cannot reach the gateway. Is it running on port 18789?");
     } finally {
@@ -66,6 +67,28 @@ export function Login({ onLogin }: LoginProps) {
           placeholder="Paste secret here…"
           disabled={loading}
         />
+
+        <div style={s.roleRow}>
+          <span style={s.label}>Role</span>
+          <div style={s.roleToggle}>
+            <button
+              type="button"
+              style={{ ...s.roleBtn, ...(role === "user" ? s.roleBtnActive : {}) }}
+              onClick={() => setRole("user")}
+              disabled={loading}
+            >
+              user
+            </button>
+            <button
+              type="button"
+              style={{ ...s.roleBtn, ...(role === "admin" ? s.roleBtnActiveAdmin : {}) }}
+              onClick={() => setRole("admin")}
+              disabled={loading}
+            >
+              admin
+            </button>
+          </div>
+        </div>
 
         {error && <p style={s.error}>{error}</p>}
 
@@ -149,5 +172,34 @@ const s = {
   btnDisabled: {
     opacity: 0.5,
     cursor: "not-allowed" as const,
+  },
+  roleRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  roleToggle: {
+    display: "flex",
+    gap: "4px",
+  },
+  roleBtn: {
+    background: "#111",
+    border: "1px solid #444",
+    borderRadius: "4px",
+    color: "#888",
+    fontSize: "11px",
+    padding: "4px 12px",
+    cursor: "pointer",
+    fontFamily: "monospace",
+  },
+  roleBtnActive: {
+    background: "#1a2a1a",
+    border: "1px solid #4a8a4a",
+    color: "#cfc",
+  },
+  roleBtnActiveAdmin: {
+    background: "#2a1a1a",
+    border: "1px solid #8a4a4a",
+    color: "#fcc",
   },
 } as const;

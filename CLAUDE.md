@@ -109,12 +109,6 @@ See `PATTERNS.md §Design-System` for full checklist, accessibility requirements
 
 ---
 
-## MCP servers
-
-See `.mcp.json`: **shadcn** (shadcn/ui registry), **context7** (library docs), **playwright** (E2E), **github** (CI/PR).
-
----
-
 ## Domain context modules
 
 Load these in addition to this file when working in a specific domain.

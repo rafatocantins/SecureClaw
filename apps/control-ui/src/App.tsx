@@ -23,6 +23,7 @@ type Tab = "chat" | "approvals" | "sessions" | "audit" | "credentials" | "compli
 
 export function App() {
   const [secret, setSecret] = useState<string | null>(null);
+  const [role, setRole] = useState<"admin" | "user">("user");
   const [tab, setTab] = useState<Tab>("chat");
   const [pendingCount, setPendingCount] = useState(0);
   const [sessionStatus, setSessionStatus] = useState<"active" | "checking" | "expired">("active");
@@ -30,7 +31,7 @@ export function App() {
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // useToken is always called (no conditional hooks), but only does work when secret is non-empty
-  const { getToken } = useToken(secret ?? "");
+  const { getToken } = useToken(secret ?? "", role);
 
   // Fetch token config and start heartbeat when user logs in
   useEffect(() => {
@@ -80,7 +81,7 @@ export function App() {
   }, [secret, expirySeconds]);
 
   if (!secret) {
-    return <Login onLogin={(s) => setSecret(s)} />;
+    return <Login onLogin={(s, r) => { setSecret(s); setRole(r); }} />;
   }
 
   return (
@@ -126,10 +127,14 @@ export function App() {
         <div style={s.headerRight}>
           <SessionDot status={sessionStatus} expirySeconds={expirySeconds} />
           <span style={s.userLabel}>control-ui</span>
+          <span style={{ ...s.roleBadge, ...(role === "admin" ? s.roleBadgeAdmin : {}) }}>
+            {role}
+          </span>
           <button
             style={s.logoutBtn}
             onClick={() => {
               setSecret(null);
+              setRole("user");
               setPendingCount(0);
             }}
           >
@@ -228,6 +233,20 @@ const s = {
   nav: { display: "flex", gap: "2px", flex: 1, flexWrap: "nowrap" as const, overflowX: "auto" as const },
   headerRight: { display: "flex", alignItems: "center", gap: "12px" },
   userLabel: { fontSize: "12px", color: "#555", fontFamily: "monospace" },
+  roleBadge: {
+    fontSize: "10px",
+    fontFamily: "monospace",
+    padding: "2px 6px",
+    borderRadius: "3px",
+    background: "#1a1a2a",
+    border: "1px solid #444",
+    color: "#888",
+  },
+  roleBadgeAdmin: {
+    background: "#2a1a1a",
+    border: "1px solid #8a4a4a",
+    color: "#fcc",
+  },
   logoutBtn: {
     fontSize: "11px", padding: "4px 10px", cursor: "pointer",
     background: "transparent", border: "1px solid #333", borderRadius: "4px",

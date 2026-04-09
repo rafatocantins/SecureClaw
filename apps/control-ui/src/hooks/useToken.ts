@@ -2,7 +2,7 @@
  * useToken.ts — Browser-side HMAC token generator.
  *
  * Matches auth.plugin.ts generateGatewayToken:
- *   token = {userId}.{timestamp_ms}.{hmac_sha256_hex(secret, userId:timestamp)}
+ *   token = {userId}.{role}.{timestamp_ms}.{hmac_sha256_hex(secret, userId:role:timestamp)}
  *
  * The CryptoKey is imported once and cached to avoid repeated importKey calls.
  */
@@ -20,7 +20,7 @@ export interface UseTokenResult {
   getToken: () => Promise<string>;
 }
 
-export function useToken(secret: string): UseTokenResult {
+export function useToken(secret: string, role: "admin" | "user" = "user"): UseTokenResult {
   const keyRef = useRef<CryptoKey | null>(null);
   const secretRef = useRef<string>("");
 
@@ -61,9 +61,9 @@ export function useToken(secret: string): UseTokenResult {
 
     const ts = Date.now().toString();
     const enc = new TextEncoder();
-    const payload = `${USER_ID}:${ts}`;
+    const payload = `${USER_ID}:${role}:${ts}`;
     const sig = await window.crypto.subtle.sign("HMAC", keyRef.current, enc.encode(payload));
-    return `${USER_ID}.${ts}.${hexEncode(sig)}`;
+    return `${USER_ID}.${role}.${ts}.${hexEncode(sig)}`;
   };
 
   return { getToken };
