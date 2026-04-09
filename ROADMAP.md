@@ -70,7 +70,7 @@ etc.) cut corners.
 5. LLM sees only `__VAULT_REF:id__` placeholders, never raw secrets
 6. Audit log: SQLite triggers block UPDATE/DELETE on `audit_events`
 7. All tool output scanned for injection before entering LLM context
-8. SSRF: `checkUrlSafetyResolved` validates hostname string + DNS-resolved IPs; fail-closed on DNS error
+8. SSRF: `checkUrlSafetyResolved` validates hostname string + DNS-resolved IPs; fail-closed on DNS error; `::ffff:` (IPv4-mapped IPv6) blocked; skill redirects re-validated per hop
 
 ---
 

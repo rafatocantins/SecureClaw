@@ -13,10 +13,15 @@
  *
  * The sandbox SSRF layer blocks private IPs and metadata endpoints before this
  * tool is ever invoked — but we add an extra client-side guard anyway.
+ *
+ * T-4-03: Redirects are followed manually so every redirect destination is
+ * re-validated through the SSRF block-list before the next request is made.
+ * `redirect: "follow"` would bypass the check on the redirected URL.
  */
 
 const MAX_BYTES = 50_000; // cap output at 50 KB to avoid flooding the LLM context
 const TIMEOUT_MS = 25_000;
+const MAX_REDIRECTS = 5;
 
 // Private/loopback ranges — defence-in-depth even inside the container
 const BLOCKED_PATTERNS = [
@@ -27,11 +32,56 @@ const BLOCKED_PATTERNS = [
   /^https?:\/\/192\.168\./,
   /^https?:\/\/127\./,
   /^https?:\/\/\[::1\]/,
+  /^https?:\/\/\[::ffff:/i,           // T-4-04: IPv4-mapped IPv6 literals
   /^https?:\/\/localhost/i,
 ];
 
 function isBlocked(url) {
   return BLOCKED_PATTERNS.some((re) => re.test(url));
+}
+
+/**
+ * Fetch a URL, manually following redirects and re-checking each hop.
+ * Throws if a redirect target is blocked or MAX_REDIRECTS is exceeded.
+ */
+async function safeFetch(startUrl) {
+  let currentUrl = startUrl;
+  let hops = 0;
+
+  while (hops <= MAX_REDIRECTS) {
+    if (isBlocked(currentUrl)) {
+      throw new Error(`URL is blocked by SSRF protection: ${currentUrl}`);
+    }
+    if (!currentUrl.startsWith("https://")) {
+      throw new Error("Only HTTPS URLs are allowed");
+    }
+
+    const response = await fetch(currentUrl, {
+      headers: {
+        "User-Agent": "Tessera/1.0 (skill:tessera/read-url)",
+        "Accept": "text/html,text/plain,application/json,*/*",
+      },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      redirect: "manual", // T-4-03: never auto-follow — validate each hop
+    });
+
+    // 3xx — validate the redirect target before following
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) {
+        throw new Error(`Redirect response (${response.status}) missing Location header`);
+      }
+      // Resolve relative Location against current URL
+      const nextUrl = new URL(location, currentUrl).toString();
+      currentUrl = nextUrl;
+      hops++;
+      continue;
+    }
+
+    return response;
+  }
+
+  throw new Error(`Too many redirects (limit: ${MAX_REDIRECTS})`);
 }
 
 async function main() {
@@ -67,14 +117,7 @@ async function main() {
 
   let response;
   try {
-    response = await fetch(url, {
-      headers: {
-        "User-Agent": "Tessera/1.0 (skill:tessera/read-url)",
-        "Accept": "text/html,text/plain,application/json,*/*",
-      },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      redirect: "follow",
-    });
+    response = await safeFetch(url);
   } catch (err) {
     process.stderr.write(`Fetch error: ${err.message}\n`);
     process.exit(1);

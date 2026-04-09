@@ -43,9 +43,20 @@ const METADATA_HOSTNAMES = new Set([
 const PRIVATE_IPV4_RE =
   /^(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i;
 
-// Regex for private / loopback IPv6 addresses
+// Regex for private / loopback IPv6 addresses.
+//
+// T-4-04: `::ffff:` covers the entire IPv4-mapped IPv6 range (::ffff:0:0/96).
+// Node.js normalises decimal notation to hex before putting it in URL.hostname
+// (e.g. "::ffff:127.0.0.1" → "::ffff:7f00:1"), so we cannot reliably extract
+// an embedded IPv4 string. Blocking all ::ffff: addresses is the correct defence:
+// any destination reachable via an IPv4-mapped address is also reachable as a
+// plain IPv4 URL, so this restriction has no legitimate use-case impact.
 const PRIVATE_IPV6_RE =
-  /^(?:::1|fe80:[0-9a-f:]*|fd[0-9a-f]{2}:[0-9a-f:]*)/i;
+  /^(?:::1|::ffff:|fe80:[0-9a-f:]*|fd[0-9a-f]{2}:[0-9a-f:]*)/i;
+
+function isPrivateIp(addr: string): boolean {
+  return PRIVATE_IPV4_RE.test(addr) || PRIVATE_IPV6_RE.test(addr);
+}
 
 /**
  * Strip brackets from IPv6 literals so `[::1]` → `::1`.
@@ -94,8 +105,8 @@ export function checkUrlSafety(rawUrl: string): UrlSafetyResult {
     };
   }
 
-  // 4. Private / loopback IP ranges
-  if (PRIVATE_IPV4_RE.test(hostname) || PRIVATE_IPV6_RE.test(hostname)) {
+  // 4. Private / loopback IP ranges (includes IPv4-mapped IPv6 via isPrivateIp)
+  if (isPrivateIp(hostname)) {
     return {
       safe: false,
       reason: `Access to private or loopback address '${hostname}' is blocked (SSRF prevention)`,
@@ -200,7 +211,7 @@ export async function checkUrlSafetyResolved(rawUrl: string): Promise<UrlSafetyR
         category: "metadata_endpoint",
       };
     }
-    if (PRIVATE_IPV4_RE.test(normalized) || PRIVATE_IPV6_RE.test(normalized)) {
+    if (isPrivateIp(normalized)) {
       return {
         safe: false,
         reason: `'${hostname}' resolved to private/loopback IP '${addr}' — DNS rebinding attack blocked`,
