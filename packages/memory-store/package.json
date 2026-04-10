@@ -14,7 +14,8 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.12.0",
     "@grpc/proto-loader": "^0.7.0",
-    "@tessera/shared": "workspace:*"
+    "@tessera/shared": "workspace:*",
+    "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

@@ -131,27 +131,28 @@ export function makeMemoryImpl(memorySvc: MemoryService) {
     SearchMessages(
       call: StreamCall<GrpcSearchMessagesRequest, GrpcStoredMessage>
     ): void {
-      try {
-        const { user_id, query, limit } = call.request;
-        const messages = memorySvc.searchMessages(user_id, query, limit || 20);
-        for (const m of messages) {
-          call.write({
-            id: m.id,
-            session_id: m.session_id,
-            user_id: m.user_id,
-            role: m.role,
-            content: m.content,
-            tool_calls_json: m.tool_calls_json,
-            tool_call_id: m.tool_call_id,
-            tool_name: m.tool_name,
-            created_at: m.created_at,
-          });
-        }
-        call.end();
-      } catch (err) {
-        process.stderr.write(`[memory-grpc] searchMessages error: ${String(err)}\n`);
-        call.destroy(err instanceof Error ? err : new Error(String(err)));
-      }
+      const { user_id, query, limit } = call.request;
+      memorySvc.searchMessages(user_id, query, limit || 20)
+        .then((messages) => {
+          for (const m of messages) {
+            call.write({
+              id: m.id,
+              session_id: m.session_id,
+              user_id: m.user_id,
+              role: m.role,
+              content: m.content,
+              tool_calls_json: m.tool_calls_json,
+              tool_call_id: m.tool_call_id,
+              tool_name: m.tool_name,
+              created_at: m.created_at,
+            });
+          }
+          call.end();
+        })
+        .catch((err: unknown) => {
+          process.stderr.write(`[memory-grpc] searchMessages error: ${String(err)}\n`);
+          call.destroy(err instanceof Error ? err : new Error(String(err)));
+        });
     },
 
     DeleteUserData(
@@ -238,23 +239,24 @@ export function makeMemoryImpl(memorySvc: MemoryService) {
       call: UnaryCall<GrpcGetRelevantLessonsRequest, GrpcGetRelevantLessonsResponse>,
       callback: Callback<GrpcGetRelevantLessonsResponse>
     ): void {
-      try {
-        const { user_id, query, limit } = call.request;
-        const rows = memorySvc.getRelevantLessons(user_id, query ?? "", limit || 5);
-        const lessons: GrpcStoredLesson[] = rows.map((r) => ({
-          id: r.id,
-          user_id: r.user_id,
-          source_session_id: r.source_session_id,
-          lesson_text: r.lesson_text,
-          category: r.category,
-          created_at: r.created_at,
-          access_count: r.access_count,
-        }));
-        callback(null, { lessons });
-      } catch (err) {
-        process.stderr.write(`[memory-grpc] getRelevantLessons error: ${String(err)}\n`);
-        callback(null, { lessons: [] });
-      }
+      const { user_id, query, limit } = call.request;
+      memorySvc.getRelevantLessons(user_id, query ?? "", limit || 5)
+        .then((rows) => {
+          const lessons: GrpcStoredLesson[] = rows.map((r) => ({
+            id: r.id,
+            user_id: r.user_id,
+            source_session_id: r.source_session_id,
+            lesson_text: r.lesson_text,
+            category: r.category,
+            created_at: r.created_at,
+            access_count: r.access_count,
+          }));
+          callback(null, { lessons });
+        })
+        .catch((err: unknown) => {
+          process.stderr.write(`[memory-grpc] getRelevantLessons error: ${String(err)}\n`);
+          callback(null, { lessons: [] });
+        });
     },
 
     ListLessons(

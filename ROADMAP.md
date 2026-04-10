@@ -374,23 +374,23 @@ Acceptance criteria:
 
 Estimated effort: 2–3 sessions.
 
-### 3B — Vector/Semantic Memory Retrieval (Priority 2)
+### ~~3B — Vector/Semantic Memory Retrieval~~ ✅ (T-3-02)
 
 Replace keyword-only FTS5 retrieval with hybrid keyword + vector similarity:
 
-- Add `sqlite-vec` extension to memory-store (zero new infrastructure, aligns with easy-install DX).
-- New `embeddings` table: `{ id, source_table, source_id, vector BLOB, model_id, created_at }`
-- Embedding generation: call the configured LLM provider's embedding endpoint (OpenAI `text-embedding-3-small`, or local via Ollama).
-- Hybrid retrieval: combine FTS5 rank + cosine similarity score with configurable weights.
-- Apply to: message search, lesson retrieval, and (future) RAG document retrieval.
-- Env vars: `TESSERA_EMBEDDING_MODEL` (default: provider's default), `TESSERA_EMBEDDING_DIM` (default: 1536).
-- Fallback: if no embedding model configured, gracefully degrade to FTS5-only (no error).
+- ~~Add `sqlite-vec` extension to memory-store (zero new infrastructure, aligns with easy-install DX).~~
+- ~~New `embeddings` table: `{ id, source_table, source_id, vector BLOB, model_id, created_at }`~~
+- ~~Embedding generation: call the configured LLM provider's embedding endpoint (OpenAI `text-embedding-3-small`, or local via Ollama).~~
+- ~~Hybrid retrieval: combine FTS5 rank + cosine similarity score with configurable weights (0.3 FTS + 0.7 vector).~~
+- ~~Apply to: message search, lesson retrieval, and (future) RAG document retrieval.~~
+- ~~Env vars: `TESSERA_EMBEDDING_MODEL`, `TESSERA_EMBEDDING_BASE_URL`, `TESSERA_EMBEDDING_DIM` (default: 1536).~~
+- ~~Fallback: if no embedding model configured, gracefully degrade to FTS5-only (no error).~~
 
 Acceptance criteria:
-- [ ] Embeddings generated for all new messages and lessons
-- [ ] `searchMessages` returns semantically relevant results even without keyword overlap
-- [ ] Graceful degradation when embedding model unavailable
-- [ ] >= 10 new tests
+- [x] Embeddings generated for all new messages and lessons
+- [x] `searchMessages` returns semantically relevant results even without keyword overlap
+- [x] Graceful degradation when embedding model unavailable
+- [x] >= 10 new tests (14 new tests added in `vector-memory.test.ts`)
 
 Estimated effort: 2 sessions.
 
@@ -614,7 +614,7 @@ Extend the marketplace with a full provenance chain:
 | 19 | ~~Backup / restore CLI commands~~ ✅ | done | Phase 2C |
 | 19b | ~~Advanced injection detection (decode-then-scan + turn score + sensitivity)~~ ✅ | done | Phase 2E |
 | 20 | ~~Reflection loop + lessons learned store (T-3-01)~~ ✅ | done | Phase 3A |
-| 21 | Vector/semantic memory retrieval (sqlite-vec) | ~2 sessions | Phase 3B |
+| 21 | ~~Vector/semantic memory retrieval (sqlite-vec) (T-3-02)~~ ✅ | done | Phase 3B |
 | 22 | User preference learning | ~1.5 sessions | Phase 3C |
 | 23 | Multi-agent orchestration | ~3–4 sessions | Phase 3D |
 | 24 | Parallel tool execution | ~1 session | Phase 3E |

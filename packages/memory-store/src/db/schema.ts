@@ -5,12 +5,15 @@ import { DatabaseSync } from "node:sqlite";
  * Safe to call multiple times — all statements use IF NOT EXISTS.
  *
  * Tables:
- *   sessions  — one row per agent session (mutable: finalised on close)
- *   messages  — conversation history (append-only in practice; cascade deletes for GDPR)
+ *   sessions    — one row per agent session (mutable: finalised on close)
+ *   messages    — conversation history (append-only in practice; cascade deletes for GDPR)
+ *   lessons     — extracted lessons from session reflection (Phase 3A)
+ *   embeddings  — vector embeddings for hybrid retrieval (Phase 3B)
  *
  * FTS5:
  *   messages_fts — external-content FTS5 index over messages.content
- *   Triggers keep the index in sync after INSERT and DELETE on messages.
+ *   lessons_fts  — external-content FTS5 index over lesson_text
+ *   Triggers keep the indexes in sync after INSERT and DELETE.
  */
 export function initSchema(db: DatabaseSync): void {
   db.exec(`
@@ -108,5 +111,21 @@ export function initSchema(db: DatabaseSync): void {
       INSERT INTO lessons_fts(lessons_fts, rowid, lesson_text)
         VALUES ('delete', old.id, old.lesson_text);
     END;
+
+    -- =========================================================================
+    -- embeddings (Phase 3B — vector/semantic memory)
+    -- =========================================================================
+    CREATE TABLE IF NOT EXISTS embeddings (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_table TEXT    NOT NULL,   -- 'messages' | 'lessons'
+      source_id    INTEGER NOT NULL,
+      vector       BLOB    NOT NULL,   -- Float32Array (little-endian IEEE 754)
+      model_id     TEXT    NOT NULL,
+      created_at   INTEGER NOT NULL
+    ) STRICT;
+
+    -- One embedding per source row; overwrite on model change
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_source
+      ON embeddings(source_table, source_id);
   `);
 }
