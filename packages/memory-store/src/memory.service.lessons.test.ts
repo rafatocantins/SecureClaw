@@ -184,7 +184,7 @@ describe("listLessons", () => {
 // ── getRelevantLessons ────────────────────────────────────────────────────────
 
 describe("getRelevantLessons", () => {
-  it("FTS5 search returns matching lessons", () => {
+  it("FTS5 search returns matching lessons", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     svc.storeLessons({
@@ -195,12 +195,12 @@ describe("getRelevantLessons", () => {
         { lesson_text: "user prefers minimal output in responses",     category: "preference" },
       ],
     });
-    const results = svc.getRelevantLessons("u1", "database", 5);
+    const results = await svc.getRelevantLessons("u1", "database", 5);
     expect(results).toHaveLength(1);
     expect(results[0]!.lesson_text).toContain("database");
   });
 
-  it("empty query returns most-recent lessons without FTS", () => {
+  it("empty query returns most-recent lessons without FTS", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     svc.storeLessons({
@@ -211,11 +211,11 @@ describe("getRelevantLessons", () => {
         { lesson_text: "lesson two", category: "fact" },
       ],
     });
-    const results = svc.getRelevantLessons("u1", "", 5);
+    const results = await svc.getRelevantLessons("u1", "", 5);
     expect(results).toHaveLength(2);
   });
 
-  it("increments access_count for returned lessons", () => {
+  it("increments access_count for returned lessons", async () => {
     const { db, svc } = makeService();
     svc.storeSession(SESSION1);
     svc.storeLessons({
@@ -223,15 +223,15 @@ describe("getRelevantLessons", () => {
       user_id: "u1",
       lessons: [{ lesson_text: "increment test lesson", category: "fact" }],
     });
-    svc.getRelevantLessons("u1", "", 5);
-    svc.getRelevantLessons("u1", "", 5);
+    await svc.getRelevantLessons("u1", "", 5);
+    await svc.getRelevantLessons("u1", "", 5);
     const row = db.prepare("SELECT access_count FROM lessons WHERE user_id = 'u1'").get() as {
       access_count: number;
     };
     expect(row.access_count).toBe(2);
   });
 
-  it("isolates results by user_id on FTS search", () => {
+  it("isolates results by user_id on FTS search", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     svc.storeSession(SESSION2);
@@ -246,12 +246,12 @@ describe("getRelevantLessons", () => {
       lessons: [{ lesson_text: "kubernetes pod scaling procedure", category: "procedure" }],
     });
 
-    const u1 = svc.getRelevantLessons("u1", "kubernetes", 5);
+    const u1 = await svc.getRelevantLessons("u1", "kubernetes", 5);
     expect(u1).toHaveLength(1);
     expect(u1[0]!.user_id).toBe("u1");
   });
 
-  it("returns empty array when no lessons match", () => {
+  it("returns empty array when no lessons match", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     svc.storeLessons({
@@ -259,7 +259,7 @@ describe("getRelevantLessons", () => {
       user_id: "u1",
       lessons: [{ lesson_text: "unrelated content here", category: "fact" }],
     });
-    const results = svc.getRelevantLessons("u1", "xyzzy_not_found", 5);
+    const results = await svc.getRelevantLessons("u1", "xyzzy_not_found", 5);
     expect(results).toHaveLength(0);
   });
 });
@@ -301,7 +301,7 @@ describe("deleteUserData with lessons", () => {
     expect(u2count).toBe(1);
   });
 
-  it("lessons FTS index is cleaned up after deleteUserData", () => {
+  it("lessons FTS index is cleaned up after deleteUserData", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     svc.storeLessons({
@@ -311,7 +311,7 @@ describe("deleteUserData with lessons", () => {
     });
     svc.deleteUserData("u1");
     // After deletion FTS triggers must have removed the entry
-    const results = svc.getRelevantLessons("u1", "purged", 5);
+    const results = await svc.getRelevantLessons("u1", "purged", 5);
     expect(results).toHaveLength(0);
   });
 });

@@ -10,13 +10,15 @@ import { initSchema } from "./schema.js";
  *
  * Uses the built-in node:sqlite module (Node.js 22.13+ / 23.4+) — no native
  * compilation required, works on all platforms without build tools.
+ *
+ * allowExtension: true is required for Phase 3B sqlite-vec loading.
  */
 export function createMemoryDatabase(dataDir: string): DatabaseSync {
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });
   }
 
-  const db = new DatabaseSync(join(dataDir, "memory.db"));
+  const db = new DatabaseSync(join(dataDir, "memory.db"), { allowExtension: true });
 
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");

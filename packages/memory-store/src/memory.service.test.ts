@@ -184,35 +184,35 @@ describe("getRecentMessages", () => {
 // ── searchMessages (FTS5) ─────────────────────────────────────────────────────
 
 describe("searchMessages (FTS5)", () => {
-  it("finds messages containing a keyword", () => {
+  it("finds messages containing a keyword", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     msg(svc, { session_id: "s1", user_id: "u1", content: "deploy the kubernetes cluster", created_at: 1_000 });
     msg(svc, { session_id: "s1", user_id: "u1", content: "list docker containers",        created_at: 2_000 });
 
-    const results = svc.searchMessages("u1", "kubernetes", 10);
+    const results = await svc.searchMessages("u1", "kubernetes", 10);
     expect(results).toHaveLength(1);
     expect(results[0]!.content).toContain("kubernetes");
   });
 
-  it("enforces user_id isolation in search results", () => {
+  it("enforces user_id isolation in search results", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     svc.storeSession(SESSION2);
     msg(svc, { session_id: "s1", user_id: "u1", content: "kubernetes deployment", created_at: 1_000 });
     msg(svc, { session_id: "s2", user_id: "u2", content: "kubernetes pods",       created_at: 2_000 });
 
-    const u1results = svc.searchMessages("u1", "kubernetes", 10);
+    const u1results = await svc.searchMessages("u1", "kubernetes", 10);
     expect(u1results).toHaveLength(1);
     expect(u1results[0]!.user_id).toBe("u1");
   });
 
-  it("returns empty array when no messages match the query", () => {
+  it("returns empty array when no messages match the query", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     msg(svc, { session_id: "s1", user_id: "u1", content: "unrelated content", created_at: 1_000 });
 
-    const results = svc.searchMessages("u1", "xyzzy_not_found", 10);
+    const results = await svc.searchMessages("u1", "xyzzy_not_found", 10);
     expect(results).toHaveLength(0);
   });
 });
@@ -293,7 +293,7 @@ describe("schema integrity", () => {
     expect(() => initSchema(db)).not.toThrow();
   });
 
-  it("FTS index is cleaned up after deleteUserData — search returns no stale results", () => {
+  it("FTS index is cleaned up after deleteUserData — search returns no stale results", async () => {
     const { svc } = makeService();
     svc.storeSession(SESSION1);
     msg(svc, { session_id: "s1", user_id: "u1", content: "to be deleted", created_at: 1_000 });
@@ -301,7 +301,7 @@ describe("schema integrity", () => {
     svc.deleteUserData("u1");
 
     // The FTS delete trigger must have removed the entry; no stale results
-    const results = svc.searchMessages("u1", "deleted", 10);
+    const results = await svc.searchMessages("u1", "deleted", 10);
     expect(results).toHaveLength(0);
   });
 });
