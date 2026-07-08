@@ -503,11 +503,11 @@ export class MemoryService {
    * Increments access_count for every lesson returned.
    */
   async getRelevantLessons(userId: string, query: string, limit = 5): Promise<StoredLesson[]> {
-    const sanitizedQuery = sanitizeFts5Query(query);
+    const sanitizedQuery = query.trim() ? sanitizeFts5Query(query) : "";
     const capped = Math.min(limit, 20);
     let rows: StoredLesson[];
 
-    if (sanitizedQuery.trim().length > 0) {
+    if (sanitizedQuery.length > 0) {
       // FTS5 results — over-fetch so hybrid re-ranking has enough candidates
       const ftsLimit = Math.min(capped * 4, 80);
       const ftsRows = this.stmtGetRelevantLessons.all(
