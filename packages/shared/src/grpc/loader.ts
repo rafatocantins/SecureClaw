@@ -19,6 +19,12 @@ import * as protoLoader from "@grpc/proto-loader";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { readFileSync, existsSync } from "node:fs";
+import {
+  type GrpcConfig,
+  loadGrpcConfig,
+  resolveCertPaths,
+  readCertFiles,
+} from "../config/grpc-config.js";
 
 const _require = createRequire(import.meta.url);
 
@@ -57,14 +63,6 @@ export { grpc };
 
 // ── mTLS credential helpers ────────────────────────────────────────────────
 
-function getCertsDir(): string {
-  return process.env["GRPC_CERTS_DIR"] ?? "./certs";
-}
-
-function isTlsRequired(): boolean {
-  return process.env["GRPC_TLS"] === "required";
-}
-
 function warnInsecure(role: string, name: string, dir: string): void {
   process.stderr.write(
     `[grpc-tls] No certs for ${role} '${name}' in '${dir}' — using insecure transport. ` +
@@ -77,36 +75,36 @@ function warnInsecure(role: string, name: string, dir: string): void {
  *
  * @param serviceName — matches the filename stem in GRPC_CERTS_DIR
  *                      (e.g. "agent-runtime" → agent-runtime.crt / agent-runtime.key)
+ * @param config       — optional GrpcConfig; falls back to loadGrpcConfig() if omitted.
  *
  * Returns SSL credentials with mutual TLS (client cert required).
- * Falls back to insecure() when cert files are absent, unless GRPC_TLS=required.
+ * Falls back to insecure() when cert files are absent, unless config.grpcTls="required".
  */
-export function serverCredentials(serviceName: string): grpc.ServerCredentials {
-  const dir = getCertsDir();
-  const caCertPath = path.join(dir, "ca.crt");
-  const certPath = path.join(dir, `${serviceName}.crt`);
-  const keyPath = path.join(dir, `${serviceName}.key`);
+export function serverCredentials(
+  serviceName: string,
+  config?: GrpcConfig
+): grpc.ServerCredentials {
+  const cfg = config ?? loadGrpcConfig();
+  const certsDir = cfg.grpcCertsDir;
+  const paths = resolveCertPaths(serviceName, certsDir);
+  const files = readCertFiles(paths);
 
-  if (!existsSync(caCertPath) || !existsSync(certPath) || !existsSync(keyPath)) {
-    if (isTlsRequired()) {
+  if (!files) {
+    if (cfg.grpcTls === "required") {
       throw new Error(
-        `[grpc-tls] GRPC_TLS=required but certs missing for server '${serviceName}' in '${dir}'. ` +
+        `[grpc-tls] GRPC_TLS=required but certs missing for server '${serviceName}' in '${certsDir}'. ` +
         `Run: bash scripts/gen-certs.sh`
       );
     }
-    warnInsecure("server", serviceName, dir);
+    warnInsecure("server", serviceName, certsDir);
     return grpc.ServerCredentials.createInsecure();
   }
-
-  const caCert = readFileSync(caCertPath);
-  const cert = readFileSync(certPath);
-  const key = readFileSync(keyPath);
 
   process.stderr.write(`[grpc-tls] mTLS enabled for server '${serviceName}'\n`);
   // requireClientCert = true enforces mutual TLS
   return grpc.ServerCredentials.createSsl(
-    caCert,
-    [{ cert_chain: cert, private_key: key }],
+    files.caCert,
+    [{ cert_chain: files.cert, private_key: files.key }],
     true
   );
 }
@@ -116,29 +114,29 @@ export function serverCredentials(serviceName: string): grpc.ServerCredentials {
  *
  * @param clientName — the name of the calling service (e.g. "gateway", "agent-runtime")
  *                     used to load the client's own cert for mutual authentication.
+ * @param config     — optional GrpcConfig; falls back to loadGrpcConfig() if omitted.
  *
- * Falls back to insecure() when cert files are absent, unless GRPC_TLS=required.
+ * Falls back to insecure() when cert files are absent, unless config.grpcTls="required".
  */
-export function clientCredentials(clientName: string): grpc.ChannelCredentials {
-  const dir = getCertsDir();
-  const caCertPath = path.join(dir, "ca.crt");
-  const certPath = path.join(dir, `${clientName}.crt`);
-  const keyPath = path.join(dir, `${clientName}.key`);
+export function clientCredentials(
+  clientName: string,
+  config?: GrpcConfig
+): grpc.ChannelCredentials {
+  const cfg = config ?? loadGrpcConfig();
+  const certsDir = cfg.grpcCertsDir;
+  const paths = resolveCertPaths(clientName, certsDir);
+  const files = readCertFiles(paths);
 
-  if (!existsSync(caCertPath) || !existsSync(certPath) || !existsSync(keyPath)) {
-    if (isTlsRequired()) {
+  if (!files) {
+    if (cfg.grpcTls === "required") {
       throw new Error(
-        `[grpc-tls] GRPC_TLS=required but certs missing for client '${clientName}' in '${dir}'.`
+        `[grpc-tls] GRPC_TLS=required but certs missing for client '${clientName}' in '${certsDir}'.`
       );
     }
-    warnInsecure("client", clientName, dir);
+    warnInsecure("client", clientName, certsDir);
     return grpc.credentials.createInsecure();
   }
 
-  const caCert = readFileSync(caCertPath);
-  const cert = readFileSync(certPath);
-  const key = readFileSync(keyPath);
-
   process.stderr.write(`[grpc-tls] mTLS enabled for client '${clientName}'\n`);
-  return grpc.credentials.createSsl(caCert, key, cert);
+  return grpc.credentials.createSsl(files.caCert, files.key, files.cert);
 }

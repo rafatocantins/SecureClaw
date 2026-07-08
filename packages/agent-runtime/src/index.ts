@@ -84,7 +84,10 @@ if (isMain) {
 
   const agentLoop = new Loop(sanitizer, policyEngine, sessionManager.approvalGate, vaultClient, auditClient, sandboxClient, skillsClient, memoryClient, alertingService);
 
-  await start(sessionManager, agentLoop);
+  // Read gRPC bind address at startup (was previously read inside startAgentGrpcServer)
+  const agentRuntimeAddr = process.env["AGENT_RUNTIME_ADDR"] ?? "0.0.0.0:19001";
+
+  await start(sessionManager, agentLoop, agentRuntimeAddr);
   process.stdout.write("[agent-runtime] Service ready\n");
 
   // Graceful shutdown: flush OTel spans before exit
