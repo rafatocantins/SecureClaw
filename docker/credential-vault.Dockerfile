@@ -8,7 +8,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate && \
 
 FROM base AS deps
 WORKDIR /app
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
+COPY .npmrc pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/credential-vault/package.json packages/credential-vault/
 RUN pnpm install --frozen-lockfile --filter @tessera/credential-vault... && \
