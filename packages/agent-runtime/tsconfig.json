@@ -8,6 +8,7 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../shared" },
-    { "path": "../input-sanitizer" }
+    { "path": "../input-sanitizer" },
+    { "path": "../alerting" }
   ]
 }
