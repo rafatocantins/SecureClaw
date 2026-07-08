@@ -94,6 +94,12 @@ export function serverCredentials(serviceName: string): grpc.ServerCredentials {
         `Run: bash scripts/gen-certs.sh`
       );
     }
+    if (process.env["NODE_ENV"] === "production") {
+      throw new Error(
+        `[grpc-tls] mTLS certs missing for server '${serviceName}' in '${dir}' and NODE_ENV=production. ` +
+        `Run: bash scripts/gen-certs.sh and set GRPC_CERTS_DIR`
+      );
+    }
     warnInsecure("server", serviceName, dir);
     return grpc.ServerCredentials.createInsecure();
   }
@@ -129,6 +135,12 @@ export function clientCredentials(clientName: string): grpc.ChannelCredentials {
     if (isTlsRequired()) {
       throw new Error(
         `[grpc-tls] GRPC_TLS=required but certs missing for client '${clientName}' in '${dir}'.`
+      );
+    }
+    if (process.env["NODE_ENV"] === "production") {
+      throw new Error(
+        `[grpc-tls] mTLS certs missing for client '${clientName}' in '${dir}' and NODE_ENV=production. ` +
+        `Run: bash scripts/gen-certs.sh and set GRPC_CERTS_DIR`
       );
     }
     warnInsecure("client", clientName, dir);
