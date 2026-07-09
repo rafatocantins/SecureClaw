@@ -165,7 +165,7 @@ export class AgentLoop {
         user_id: ctx.user_id,
         source: "user_input",
         excerpt: stripVaultRefs(content.slice(0, 256)),
-      }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
+      }, (_e: unknown) => this.auditClient.logEvent(toLogEventParams(e)));
       yield {
         injection_warning: {
           excerpt: content.slice(0, 200),
@@ -227,7 +227,7 @@ export class AgentLoop {
           team_id: teamId,
           spent_usd: quotaStatus.spent_usd,
           quota_usd: quotaStatus.quota_usd,
-        }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
+        }, (_e: unknown) => this.auditClient.logEvent(toLogEventParams(e)));
         yield {
           error: {
             code: "QUOTA_EXCEEDED",
@@ -350,7 +350,7 @@ export class AgentLoop {
           session_id: ctx.session_id,
           user_id: ctx.user_id,
           reason: "turn_cap_exceeded",
-        }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
+        }, (_e: unknown) => this.auditClient.logEvent(toLogEventParams(e)));
         yield {
           error: {
             code: "TURN_CAP_EXCEEDED",
@@ -475,7 +475,7 @@ export class AgentLoop {
                 user_id: ctx.user_id,
                 reason: "policy_engine_denied",
                 tool_id,
-              }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
+              }, (_e: unknown) => this.auditClient.logEvent(toLogEventParams(e)));
               yield {
                 error: {
                   code: "POLICY_DENIED",
@@ -520,7 +520,7 @@ export class AgentLoop {
               call_id,
               tool_id,
               input_preview: stripVaultRefs(inputPreview.slice(0, 300)),
-            }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
+            }, (_e: unknown) => this.auditClient.logEvent(toLogEventParams(e)));
 
             const approvalStart = Date.now();
             const approvalSpan = tracer.startSpan("tessera.approval.wait", { kind: SpanKind.INTERNAL }, otelCtx);
@@ -633,7 +633,7 @@ export class AgentLoop {
                 user_id: ctx.user_id,
                 reason: "ssrf_block",
                 tool_id,
-              }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
+              }, (_e: unknown) => this.auditClient.logEvent(toLogEventParams(e)));
               yield { error: { code: "POLICY_DENIED", message: `URL blocked: ${urlCheck.reason}` } };
               toolResultsBuffer.push({
                 call_id, tool_id,
@@ -829,7 +829,7 @@ export class AgentLoop {
               user_id: ctx.user_id,
               source: "tool_output",
               excerpt: stripVaultRefs(toolResult.slice(0, 256)),
-            }, (e) => this.auditClient.logEvent(toLogEventParams(e)));
+            }, (_e: unknown) => this.auditClient.logEvent(toLogEventParams(e)));
             toolResultsBuffer.push({
               call_id, tool_id,
               result: "[TOOL OUTPUT SUPPRESSED: Prompt injection attempt detected]",
