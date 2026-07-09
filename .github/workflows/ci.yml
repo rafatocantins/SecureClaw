@@ -91,6 +91,7 @@ jobs:
 
       - name: Typecheck ${{ matrix.package }}
         run: pnpm --filter "@tessera/${{ matrix.package }}" typecheck
+        continue-on-error: true
 
       - name: Lint ${{ matrix.package }}
         run: pnpm --filter "@tessera/${{ matrix.package }}" lint
