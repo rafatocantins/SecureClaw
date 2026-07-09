@@ -14,9 +14,9 @@ import { makeAgentImpl } from "./agent.impl.js";
 
 export function startAgentGrpcServer(
   sessionManager: SessionManager,
-  agentLoop: AgentLoop
+  agentLoop: AgentLoop,
+  addr: string
 ): Promise<grpc.Server> {
-  const addr = process.env["AGENT_RUNTIME_ADDR"] ?? "0.0.0.0:19001";
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proto = loadProto("agent.proto") as any;

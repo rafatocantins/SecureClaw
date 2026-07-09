@@ -19,3 +19,7 @@ export * from "./utils/env.js";
 // gRPC — proto loader, mTLS credential helpers, wire types
 export { loadProto, grpc, serverCredentials, clientCredentials } from "./grpc/loader.js";
 export type * from "./grpc/types.js";
+
+// Config — centralized env-based configuration
+export { loadGrpcConfig, resolveCertPaths, readCertFiles } from "./config/grpc-config.js";
+export type { GrpcConfig } from "./config/grpc-config.js";
