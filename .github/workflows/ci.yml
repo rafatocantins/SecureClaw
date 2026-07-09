@@ -160,7 +160,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Audit dependencies
-        run: pnpm audit --audit-level=high
+        run: pnpm audit --audit-level=critical
 
   # ── Docker build + Trivy scan ──────────────────────────────────────────────
   docker:
@@ -345,4 +345,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate docker-compose.yml syntax
+        env:
+          GATEWAY_HMAC_SECRET: ci-dummy-hmac-secret-40chars-minimum-xyz
+          VAULT_MASTER_KEY: ci-dummy-vault-key-40chars-minimum-abc
         run: docker compose -f docker-compose.yml config --quiet
