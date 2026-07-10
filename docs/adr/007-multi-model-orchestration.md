@@ -37,6 +37,13 @@ At ~10 sessions/day with triage overhead, the incremental cost of orchestration 
 
 **We will build a multi-model orchestration layer in `packages/agent-runtime` that dynamically assigns tasks to models based on a triage classifier and a TRINITY-inspired Thinker/Worker/Verifier architecture.**
 
+> **TRINITY fidelity note:** TRINITY (ICLR 2026) uses a **trained coordinator** (sep-CMA-ES, <20K parameters) that learns to decompose tasks through evolutionary optimization against a reward signal. Our v1 orchestrator uses a **prompt-based Flash classifier** — fundamentally different. Prompt-based decomposition will be less precise than a trained coordinator, particularly for novel or ambiguous tasks. We commit to:
+> - Measuring the decomposition quality gap in integration tests (comparing Flash triage decisions against a human-labeled complexity benchmark).
+> - Setting realistic expectations: the v1 orchestrator will improve on single-model quality for clear-cut cases but may misclassify borderline tasks.
+> - Revisiting learned orchestration (sep-CMA-ES or RL) in Sprint 4 if session volume justifies the training investment.
+>
+> This is also discussed in Alternatives Considered §6 (Fugu-style Learned Orchestrator).
+
 The system is feature-flagged behind `TESSERA_ORCHESTRATOR_ENABLED` (default: `false` for backward compatibility) and introduces no breaking changes to existing single-model sessions.
 
 ### Architecture Overview
@@ -269,6 +276,61 @@ export class ProviderError extends Error {
 4. **`AbortSignal` support** — allows the orchestrator to cancel slow calls during failover without leaking connections.
 5. **Tool definitions are optional** — the triage/verifier models receive no tools (they only see structured output), reducing both cost and security surface.
 
+### Relationship to the Existing LLMProvider Interface
+
+The ADR proposes a new `LLMProvider` interface that differs from the **existing** one (`packages/agent-runtime/src/llm/provider.interface.ts`). This is deliberate and the interfaces serve different purposes:
+
+| Concern | Existing LLMProvider | ADR LLMProvider |
+|---|---|---|
+| **Model binding** | One model per instance (`provider_name` + `model_name` read-only) | Multi-model via `chat(model, ...)` |
+| **Streaming** | `streamCompletion()` (AsyncIterable, token-by-token) + `complete()` (non-streaming) | `chat()` (non-streaming only in v1) |
+| **Cost currency** | `estimateCostUsd()` returns USD | `getCostInfo()` returns EUR cents |
+| **Error handling** | Throws on failure | Structured `ProviderError` with `retryable` flag |
+| **Tools** | `LLMTool[]` (`{ id, description, input_schema }`) | `ToolDefinition[]` (`{ name, description, parameters }`) |
+| **Capabilities** | No model listing | `listModels()` for discovery |
+
+**Migration strategy — the orchestrator wraps AgentLoop, not replaces it:**
+
+The ADR originally referenced `createSingleModelAgentLoop()` — a function that **does not exist** in the current codebase. The actual integration path is:
+
+1. **Existing code path** (`TESSERA_ORCHESTRATOR_ENABLED=false`): `startAgentGrpcServer(sessionManager, agentLoop, addr)` where `agentLoop` is an `AgentLoop` instance — unchanged.
+
+2. **Orchestrated code path** (`TESSERA_ORCHESTRATOR_ENABLED=true`): The orchestrator implements the **same caller-facing contract** as `AgentLoop.run()` — an `AsyncGenerator<GrpcAgentChunk>`. Internally, the orchestrator uses the new `LLMProvider` adapters for its own model calls (triage, thinker, verifier), but it delegates actual tool-execution work to a wrapped `AgentLoop` instance. Concretely:
+
+```typescript
+// Orchestrator wraps AgentLoop — it intercepts the first message for triage,
+// then delegates the real work to AgentLoop with the selected model.
+class Orchestrator {
+  constructor(
+    private providers: Map<string, LLMProvider>,  // new interface
+    private agentLoop: AgentLoop,                  // existing AgentLoop
+    private sessionManager: SessionManager
+  ) {}
+
+  async *run(ctx: SessionContext, content: string): AsyncGenerator<GrpcAgentChunk> {
+    // 1. Triage with Flash (via new LLMProvider)
+    const classification = await this.classify(content, ctx);
+    
+    // 2. Set the appropriate provider on the session context
+    ctx.provider = this.selectProvider(classification);
+    
+    // 3. Delegate to existing AgentLoop for streaming execution
+    yield* this.agentLoop.run(ctx, content);
+    
+    // 4. (Complex only) Verify after AgentLoop completes
+    if (classification.complexity === "complex") {
+      yield* this.verifyAndCorrect(ctx, classification);
+    }
+  }
+}
+```
+
+This design means:
+- The `startAgentGrpcServer(sessionManager, orchestrator, addr)` call works because `Orchestrator.run()` has the same signature.
+- The existing `AgentLoop` continues to handle tool execution, policy enforcement, and streaming — unchanged.
+- The new `LLMProvider` adapters are thin wrappers around provider SDKs; they do not duplicate `AgentLoop`'s security logic.
+- A future refactoring (Sprint 3) can extract a shared `AgentLoopCore` that both paths use, but this is not required for v1.
+
 ### Failover Chain
 
 The failover chain is **linear with retry-aware escalation**, inspired by AgentCollab's "cheap tries, expensive decides" but applied to reliability rather than quality.
@@ -303,6 +365,29 @@ Primary (Pro) ──▶ Fallback (Flash) ──▶ Last-resort (M3) ──▶ Er
 - The orchestrator replays the **original messages + any completed tool results** into the fallback model — no loss of context.
 - If the primary model returned partial tool calls before failing, those are discarded; the fallback starts fresh from the last known-good state.
 - Each failover step is recorded in `audit_events` with: `{ from_model, to_model, reason, session_id, latency_ms }`.
+
+### Flash Single Point of Failure
+
+Flash serves **four distinct roles** in v1: triage classifier, thinker (task decomposition), verifier (output validation), and fallback model. This concentration creates a single point of failure:
+
+| Failure scenario | Impact | Mitigation |
+|---|---|---|
+| Flash API degraded | All complex sessions stall at triage, thinking, or verification | M3 can substitute for triage; verifier can be skipped with `VERIFIER_MODE=warn-only` |
+| Flash rate-limited | Simple tasks (Flash-only path) fail entirely | Simple tasks escalate to Pro with self-critique |
+| Flash unavailable | Orchestrator cannot function | `TESSERA_ORCHESTRATOR_ENABLED` can be dynamically set to `false` to revert to single-model mode |
+
+**Mitigations we commit to:**
+
+1. **Separate API key for Flash:** Use a dedicated DeepSeek API key for Flash calls, distinct from the Pro key. This prevents a Pro quota exhaustion from also taking down Flash (and vice versa).
+
+2. **Health check + auto-degrade:** The orchestrator maintains a circuit breaker for each provider. If Flash fails 3 consecutive requests within a 60-second window, the orchestrator auto-degrades: simple tasks route to Pro with self-critique, complex tasks skip the verifier, and triage moves to M3.
+
+3. **`VERIFIER_MODE` configuration:** Three modes control verifier behavior:
+   - `enforce` (default): Verifier failure blocks delivery
+   - `warn-only`: Verifier runs but failures are logged (not blocking)
+   - `off`: Verifier is skipped entirely (useful during Flash outages)
+
+4. **Dedicated triage model (Sprint 2):** We will evaluate GLM-4.7 Flash or Qwen3.5-9B as an alternative triage model to reduce concentration risk. The provider abstraction makes this a configuration change, not a code change.
 
 ### Cost Tracking
 
@@ -368,7 +453,18 @@ ORDER BY cost_eur DESC;
 | Complex | 3–6 | Flash (triage + thinker + verifier) + Pro (worker) | ~€0.015 |
 | Complex w/ failover | 4–8 | Above + M3 (fallback) | ~€0.025 |
 
-At 10 sessions/day with ~70% simple, ~25% medium, ~5% complex distribution, the estimated monthly cost is **~€0.42**, consistent with Augustus's projections.
+At 10 sessions/day (~300/month) with ~70% simple, ~25% medium, ~5% complex distribution, the estimated monthly cost is **~€0.71**:
+
+| Tier | Sessions | Cost/session | Subtotal |
+|---|---|---|---|
+| Simple (70%) | 210 | €0.0005 | €0.105 |
+| Medium (25%) | 75 | €0.005 | €0.375 |
+| Complex (5%) | 15 | €0.015 | €0.225 |
+| **Total** | **300** | — | **€0.705** |
+
+A more conservative ~85/13/2% distribution (still predominantly simple) would yield ~€0.42/month. We present the 70/25/5 estimate as the realistic baseline and will calibrate with production data.
+
+**Clarification on simple tasks:** Simple tasks require only **one Flash call** — the triage classification itself serves as the response. The classifier's output is returned directly to the user without a second invocation. This is consistent with the pseudocode above (`{ primary: "flash", roles: [] }`).
 
 ### State Management
 
@@ -432,6 +528,20 @@ async function startAgentRuntime() {
 
 5. **Progressive rollout** — Operators can enable orchestration per-deployment, per-environment, or per-session via the environment variable. A future control-plane UI could toggle it per-tenant without a restart.
 
+#### CreateSessionRequest.provider Field Behavior Under Orchestration
+
+When `TESSERA_ORCHESTRATOR_ENABLED=true`, the existing `provider` field in `CreateSessionRequest` (values: `anthropic`, `openai`, `gemini`, `ollama`) becomes ambiguous — the orchestrator, not the user, selects which model handles each phase. We resolve this as follows:
+
+| Orchestrator state | `provider` field | Behavior |
+|---|---|---|
+| `ENABLED=true` | `anthropic`, `openai`, `gemini`, `ollama` | **Ignored.** The orchestrator overrides with its own model selection. A `PROVIDER_OVERRIDDEN` audit event is emitted: `{ requested: "ollama", actual: "deepseek/v4-flash", reason: "orchestrator_enabled" }`. |
+| `ENABLED=true` | Unset / default | No warning; orchestrator selects normally. |
+| `ENABLED=false` | Any value | Existing single-model behavior — `provider` is honored exactly as today. |
+
+**Special case — `provider: "ollama"` under orchestration:** Ollama models run locally and do not have a provider abstraction adapter in v1. When the orchestrator is enabled and `provider` is `ollama`, the orchestrator logs a `PROVIDER_NOT_SUPPORTED` warning and falls back to single-model mode for that session (using Ollama as the sole model). This is equivalent to `TESSERA_ORCHESTRATOR_ENABLED=false` for that specific session. We do NOT attempt to mix local Ollama models with cloud-based orchestration in v1.
+
+**Future (Sprint 3):** If demand exists for Ollama-orchestrated workloads, we can add an Ollama adapter implementing the new `LLMProvider` interface. The mapping table approach (exposing Ollama models as triage/worker candidates) would then become straightforward.
+
 ## Consequences
 
 ### What Becomes Easier
@@ -448,6 +558,27 @@ async function startAgentRuntime() {
 - **Test surface area** — each combination of (complexity, model, failover path) needs test coverage. We commit to parametrized integration tests covering all paths.
 - **EU AI Act documentation** — multi-model systems require additional transparency: which model made which decision? The audit trail provides this, but the compliance dashboard (Phase 4C) must surface it.
 
+### Streaming Regression and Latency Budget
+
+**Existing behavior:** The current `AgentLoop.run()` method is an `AsyncGenerator<GrpcAgentChunk>` — it streams token-by-token responses to the user in real time. The user sees text appear as the model produces it.
+
+**ADR proposal:** The orchestrator uses a sequential pipeline: Triage → (Thinker →) Worker → Verifier. Each phase involves a non-streaming `chat()` call. This means the user sees **nothing** until all phases complete, introducing a 4–8 second dead-air gap for complex tasks.
+
+**This is a regression and must be acknowledged.** We propose two mitigations:
+
+1. **Streaming variant (preferred):** The Worker phase streams token-by-token directly to the user while the Verifier runs in parallel on the final accumulated output. If the Verifier rejects the result, the orchestrator appends a corrective follow-up. This preserves the real-time feel of the existing `AgentLoop` while maintaining verifier protection. Implementation: the orchestrator's Worker phase uses `streamCompletion()` (the existing streaming interface) and the accumulated output is concurrently fed to the Verifier via `complete()`.
+
+2. **Latency budget with SLA targets:** Until the streaming variant ships, we commit to latency budgets per complexity tier:
+   | Tier | Max user-visible latency | Budget allocation |
+   |---|---|---|
+   | Simple | <1s | Triage only (1 Flash call) |
+   | Medium | <3s | Triage + Pro with self-critique |
+   | Complex | <6s | Triage + Thinker + Worker + Verifier |
+   
+   These budgets will be enforced by `AbortSignal` with deadlines. Breaches trigger a `LATENCY_BUDGET_EXCEEDED` audit event and escalate to the fallback model.
+
+The streaming variant will be implemented in Sprint 2 (Harness Self-Evolution) and is tracked as issue #ADR007-STREAMING in the project backlog.
+
 ### What We Commit To
 
 1. **No breaking changes to the gRPC contract** — `AgentService` stays stable.
@@ -455,6 +586,51 @@ async function startAgentRuntime() {
 3. **Every orchestrator decision is auditable** — triage result, model assignment, failover events, and verifier outcomes are all emitted as `audit_events`.
 4. **Cost ledger is append-only** — same SQLite trigger protection as the main `audit_events` table (no UPDATE/DELETE).
 5. **Vault refs never cross provider boundaries** — see Security Review below.
+
+### Test Strategy
+
+The orchestrator introduces a combinatorial test surface: complexity tiers × orchestration modes × failover paths × verifier outcomes. We define the following critical test paths:
+
+#### Unit Tests (Vitest, co-located with source)
+
+| Test class | What it covers |
+|---|---|
+| `Orchestrator.classify` | Triage prompt returns valid JSON for all three complexity tiers; handles truncated/malformed output |
+| `Orchestrator.route` | Correct model assignment for each complexity tier (simple→Flash, medium→Pro+self-critique, complex→Thinker/Worker/Verifier) |
+| `Orchestrator.failover` | Retryable errors retry (×2 for Pro, ×1 for Flash); non-retryable errors skip to next model; circuit breaker triggers after 3 consecutive failures |
+| `Verifier.validate` | Structured verifier output parsing; PASS/FAIL/UNCERTAIN decisions; FP/FN tracking |
+
+#### Integration Tests (Docker, `@tessera/integration`)
+
+| Scenario | Complexity | Failover | Verifier | Expected outcome |
+|---|---|---|---|---|
+| `simple-happy-path` | Simple | None | N/A | Flash responds directly, ~€0.0005 cost |
+| `medium-self-critique` | Medium | None | N/A | Pro executes with reflection, 1–3 calls |
+| `complex-full-pipeline` | Complex | None | PASS | Triage→Thinker→Worker→Verifier, answer delivered |
+| `complex-verifier-rejects` | Complex | None | FAIL (×2 then give up) | Worker→Verifier→reject→Worker retry→Verifier→PASS on 2nd attempt |
+| `pro-fails-flash-catches` | Any | Pro→Flash | N/A | Pro timeout→Flash fallback→answer delivered |
+| `all-fail-unavailable` | Any | Pro→Flash→M3→error | N/A | gRPC UNAVAILABLE returned to caller |
+| `single-model-mode` | N/A | N/A | N/A | Orchestrator disabled; existing behavior unchanged |
+
+#### Malformed Triage Output Fallback
+
+The triage classifier returns structured JSON. If Flash produces malformed, truncated, or unparseable output, the orchestrator **defaults to the single-model Pro path** (equivalent to `complexity: "medium"` with self-critique). This is safe: Pro with self-critique handles any task competently, and a single-model session is strictly better than an error. The fallback is logged as `ORCHESTRATOR_TRIAGE_MALFORMED` with the raw Flash output for debugging:
+
+```typescript
+function parseTriageResult(raw: string): Classification {
+  try {
+    const parsed = JSON.parse(raw);
+    const complexity = ClassificationSchema.shape.complexity.parse(parsed.complexity);
+    return { complexity, roles: parsed.roles ?? [], reasoning: parsed.reasoning ?? "" };
+  } catch {
+    // Malformed — default to Pro single-model path
+    auditClient.logEvent({ event_type: "ORCHESTRATOR_TRIAGE_MALFORMED", ... });
+    return { complexity: "medium", roles: ["worker"], reasoning: "malformed triage output — defaulting to Pro" };
+  }
+}
+```
+
+This ensures the orchestrator is **fail-safe**: a broken triage prompt or Flash model regression cannot prevent the user from getting an answer.
 
 ## Security Review
 
@@ -532,6 +708,73 @@ Every orchestrator decision emits an audit event:
 | `COST_ENTRY` | After each model invocation | `{ model_key, role, input_tokens, output_tokens, cost_euro_cents }` |
 
 All events are written to the append-only `audit_events` table (enforced by SQLite triggers — no UPDATE/DELETE permitted).
+
+## EU AI Act Compliance
+
+Multi-model orchestration introduces transparency obligations under the EU AI Act. We address them as follows:
+
+**Per-model attribution:** The `SessionSummary` proto (delivered to end-users on request) will be extended with a `model_attribution` repeated field recording every model that contributed to the session output: `{ model_key, role, tokens_consumed }`. This satisfies the Act's requirement that users know which AI system produced which part of the output.
+
+**Data minimization across providers:** The orchestrator sends only the minimum context each model needs — triage sees only the user's first message, the thinker sees the task specification, and the verifier sees only the worker's final answer. This reduces the surface area of personal data exposure across providers. Full conversation history stays within the gateway's control and is never forwarded to a provider that doesn't need it.
+
+**Risk classification:** The orchestrator itself is classified as a **limited-risk AI system** under the EU AI Act (Article 52 transparency obligations apply). The individual models are general-purpose AI systems (GPAI) regulated under Article 53. The combination does not constitute a high-risk use case because (a) Tessera is an augmentation tool, not an automated decision-maker, (b) human users remain in the loop for all high-impact actions (approval gate), and (c) the verifier acts as a safety net, not a gatekeeper. A more detailed compliance assessment will be completed as part of Phase 4C.
+
+## Observability: Per-Phase Metrics and Feedback Loops
+
+Beyond the audit events already defined, we instrument each orchestrator phase with OpenTelemetry spans for latency tracking:
+
+| Phase | Span name | Key attributes |
+|---|---|---|
+| Triage | `orchestrator.triage` | `complexity`, `latency_ms`, `model` |
+| Thinker | `orchestrator.thinker` | `subtask_count`, `latency_ms`, `model` |
+| Worker | `orchestrator.worker` | `tool_calls`, `turn_count`, `latency_ms`, `model` |
+| Verifier | `orchestrator.verifier` | `verdict`, `latency_ms`, `model` |
+| Failover | `orchestrator.failover` | `from_model`, `to_model`, `reason` |
+
+These spans are children of the existing `agent.session` span and appear in any OTel-compatible backend (Jaeger, Grafana, Honeycomb).
+
+**Triage accuracy feedback loop:** Each session's triage decision is stored alongside the session outcome. A daily batch job (Sprint 2: Harness Self-Evolution) will correlate triage classifications with session satisfaction signals (task completion rate, verifier pass rate, user feedback) to identify systematic misclassifications and suggest prompt refinements.
+
+**Failover rate alerting:** Two thresholds are predefined:
+- `FAILOVER_RATE > 5%` over a rolling 1-hour window → WARN alert
+- `FAILOVER_RATE > 15%` over a rolling 1-hour window → CRITICAL alert (possible provider outage)
+
+## Verifier Prompt Quality
+
+### VERIFIER_SYSTEM_PROMPT (sketch)
+
+```
+You are a verification agent in a multi-model AI orchestration system.
+Your task: validate the Worker model's answer against the user's original request.
+
+Evaluate on three dimensions:
+1. FACTUAL: Is every factual claim verifiable? Flag claims that appear fabricated.
+2. COMPLETE: Does the answer fully address the user's request? Flag omissions.
+3. SAFE: Does the answer contain harmful instructions, PII leaks, or policy violations?
+
+Respond with JSON:
+{
+  "verdict": "PASS" | "FAIL" | "UNCERTAIN",
+  "factual_issues": ["claim X is unverifiable", ...],
+  "completeness_gaps": ["missing Y", ...],
+  "safety_concerns": ["leaked PII in section Z", ...],
+  "confidence": 0.0-1.0
+}
+
+If verdict is FAIL or UNCERTAIN, provide specific, actionable feedback the Worker can use to improve.
+```
+
+### Accuracy Measurement
+
+Verifier accuracy is measured by tracking false positives (rejecting a correct answer) and false negatives (passing an incorrect answer) against a human-labeled validation set:
+
+| Metric | Definition | Target | Measurement method |
+|---|---|---|---|
+| **FP rate** | Fraction of correct answers incorrectly rejected | <5% | Spot-check 100 sessions/month; human labeler confirms correctness |
+| **FN rate** | Fraction of incorrect answers incorrectly passed | <10% | Spot-check 100 sessions/month; human labeler identifies errors missed by verifier |
+| **F1 score** | Harmonic mean of precision/recall | >0.85 | Aggregated from monthly spot-checks |
+
+**Calibration burden:** The verifier prompt requires iterative tuning. Each month's spot-check results feed into prompt refinements (additional criteria, sharper definitions, few-shot examples). This is a recurring cost that must be budgeted — we estimate ~2 hours/month of prompt engineering for the first 6 months, tapering to ~30 minutes/month once stable. DSPy 3.0 (see Alternatives Considered §5) may automate this calibration but is deferred to Sprint 2.
 
 ## Alternatives Considered
 
