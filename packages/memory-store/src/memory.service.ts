@@ -17,6 +17,7 @@ import {
   EmbeddingClient,
   readEmbeddingConfig,
 } from "./embeddings/embedding-client.js";
+import { sanitizeFts5Query } from "./fts5-sanitizer.js";
 
 // Synchronous require helper — used to optionally load sqlite-vec at runtime.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -410,6 +411,7 @@ export class MemoryService {
    * Falls back to FTS5-only when no embedding model is configured.
    */
   async searchMessages(userId: string, query: string, limit = 20): Promise<StoredMessage[]> {
+    const sanitizedQuery = sanitizeFts5Query(query);
     const capped = Math.min(limit, 100);
     const ftsLimit = this.embeddingClient ? Math.min(capped * 4, 400) : capped;
 
@@ -426,13 +428,13 @@ export class MemoryService {
          ORDER BY rank
          LIMIT ?`
       )
-      .all(query, userId, ftsLimit) as unknown as FtsMessage[];
+      .all(sanitizedQuery, userId, ftsLimit) as unknown as FtsMessage[];
 
     if (!this.embeddingClient || ftsRows.length === 0) {
       return ftsRows.slice(0, capped) as StoredMessage[];
     }
 
-    const vectorScores = await this.getVectorScores("messages", userId, query);
+    const vectorScores = await this.getVectorScores("messages", userId, sanitizedQuery);
 
     if (vectorScores.size === 0) {
       return ftsRows.slice(0, capped) as StoredMessage[];
@@ -501,20 +503,21 @@ export class MemoryService {
    * Increments access_count for every lesson returned.
    */
   async getRelevantLessons(userId: string, query: string, limit = 5): Promise<StoredLesson[]> {
+    const sanitizedQuery = sanitizeFts5Query(query);
     const capped = Math.min(limit, 20);
     let rows: StoredLesson[];
 
-    if (query.trim().length > 0) {
+    if (sanitizedQuery.trim().length > 0) {
       // FTS5 results — over-fetch so hybrid re-ranking has enough candidates
       const ftsLimit = Math.min(capped * 4, 80);
       const ftsRows = this.stmtGetRelevantLessons.all(
-        query,
+        sanitizedQuery,
         userId,
         ftsLimit,
       ) as unknown as (StoredLesson & { rank: number })[];
 
       if (this.embeddingClient && ftsRows.length > 0) {
-        const vectorScores = await this.getVectorScores("lessons", userId, query);
+        const vectorScores = await this.getVectorScores("lessons", userId, sanitizedQuery);
 
         if (vectorScores.size > 0) {
           // Normalize FTS5 rank (negative values, more negative = better)
