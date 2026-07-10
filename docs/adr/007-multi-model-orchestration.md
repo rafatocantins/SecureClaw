@@ -144,7 +144,7 @@ The provider abstraction uses the **Adapter pattern** to decouple the orchestrat
 ```typescript
 // packages/agent-runtime/src/orchestrator/provider.interface.ts
 
-import type { z } from "zod";
+import { z } from "zod";
 
 // ── Envelope types (shared across all providers) ──
 
