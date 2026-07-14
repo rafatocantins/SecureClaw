@@ -6,7 +6,7 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 # ── deps stage: install all workspace deps ──────────────────────────────────
 FROM base AS deps
 WORKDIR /app
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
+COPY .npmrc pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/gateway/package.json packages/gateway/
 RUN pnpm install --frozen-lockfile --filter @tessera/gateway... && \

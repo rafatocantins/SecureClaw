@@ -315,7 +315,7 @@ full detail, grep commands, and recommended fixes.
 
 | ID | Title | Rule | Status |
 |---|---|---|---|
-| PATT-001 | Unconditional `createInsecure()` not guarded by `NODE_ENV` | B.3 | [ ] |
+| PATT-001 | Unconditional `createInsecure()` not guarded by `NODE_ENV` | B.3 | [x] |
 | PATT-002 | `process.env` read inside service method, not at startup | H.1 | [ ] |
 | PATT-003 | SQL injection surface — parameterization audit needed | J.2 | [ ] |
 

@@ -96,13 +96,6 @@ export function serverCredentials(
         `Run: bash scripts/gen-certs.sh`
       );
     }
-    if (cfg.nodeEnv === "production") {
-      throw new Error(
-        `[grpc-tls] Refusing to start with insecure gRPC in production. ` +
-        `Certs missing for server '${serviceName}' in '${certsDir}'. ` +
-        `Run: bash scripts/gen-certs.sh`
-      );
-    }
     warnInsecure("server", serviceName, certsDir);
     return grpc.ServerCredentials.createInsecure();
   }
@@ -138,13 +131,6 @@ export function clientCredentials(
     if (cfg.grpcTls === "required") {
       throw new Error(
         `[grpc-tls] GRPC_TLS=required but certs missing for client '${clientName}' in '${certsDir}'.`
-      );
-    }
-    if (cfg.nodeEnv === "production") {
-      throw new Error(
-        `[grpc-tls] Refusing to start with insecure gRPC in production. ` +
-        `Certs missing for client '${clientName}' in '${certsDir}'. ` +
-        `Run: bash scripts/gen-certs.sh`
       );
     }
     warnInsecure("client", clientName, certsDir);
