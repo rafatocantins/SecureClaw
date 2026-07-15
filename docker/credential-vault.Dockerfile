@@ -3,7 +3,7 @@
 # NOTE: keytar requires libsecret on Linux. In containers we use a
 # file-based fallback encrypted with VAULT_MASTER_KEY env var.
 FROM node:22-alpine AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate && \
+RUN corepack enable && corepack prepare pnpm@10 --activate && \
     apk add --no-cache libsecret
 
 FROM base AS deps

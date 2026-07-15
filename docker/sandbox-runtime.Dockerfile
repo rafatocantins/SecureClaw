@@ -4,7 +4,7 @@
 # access to the Docker socket. In production this should be via
 # Docker-in-Docker or a Docker proxy with minimal permissions.
 FROM node:22-alpine AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 FROM base AS deps
 WORKDIR /app
