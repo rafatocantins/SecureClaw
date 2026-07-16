@@ -2,7 +2,7 @@
 # Tessera Telegram Channel — multi-stage build, non-root UID 10001
 # Outbound-only adapter (no EXPOSE, no data volume)
 FROM node:22-alpine AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 FROM base AS deps
 WORKDIR /app
