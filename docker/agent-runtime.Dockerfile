@@ -9,6 +9,7 @@ COPY .npmrc pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/input-sanitizer/package.json packages/input-sanitizer/
 COPY packages/agent-runtime/package.json packages/agent-runtime/
+COPY packages/alerting/package.json packages/alerting/
 RUN pnpm install --frozen-lockfile --filter @tessera/agent-runtime... && \
     mkdir -p /app/packages/agent-runtime/node_modules
 
@@ -16,8 +17,10 @@ FROM deps AS build
 COPY packages/shared/ packages/shared/
 COPY packages/input-sanitizer/ packages/input-sanitizer/
 COPY packages/agent-runtime/ packages/agent-runtime/
+COPY packages/alerting/ packages/alerting/
 COPY tsconfig.base.json ./
 RUN pnpm --filter @tessera/shared build && \
+    pnpm --filter @tessera/alerting build && \
     pnpm --filter @tessera/input-sanitizer build && \
     pnpm --filter @tessera/agent-runtime build
 
@@ -33,6 +36,8 @@ COPY --from=build --chown=10001:10001 /app/packages/input-sanitizer/dist/ packag
 COPY --from=build --chown=10001:10001 /app/packages/input-sanitizer/package.json packages/input-sanitizer/
 COPY --from=build --chown=10001:10001 /app/packages/agent-runtime/dist/ packages/agent-runtime/dist/
 COPY --from=build --chown=10001:10001 /app/packages/agent-runtime/package.json packages/agent-runtime/
+COPY --from=build --chown=10001:10001 /app/packages/alerting/dist/ packages/alerting/dist/
+COPY --from=build --chown=10001:10001 /app/packages/alerting/package.json packages/alerting/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
 COPY --from=deps --chown=10001:10001 /app/packages/agent-runtime/node_modules/ packages/agent-runtime/node_modules/
 
