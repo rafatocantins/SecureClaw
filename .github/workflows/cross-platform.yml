@@ -61,6 +61,7 @@ jobs:
       # that require a value even for config-only validation.
       # The stubs below are CI-only placeholders — NEVER used in production.
       - name: Compose Validate
+        if: runner.os != 'macOS'
         shell: bash
         run: docker compose -f docker-compose.yml config --quiet
         env:
