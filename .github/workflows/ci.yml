@@ -131,6 +131,10 @@ jobs:
         if: matrix.package != 'shared'
         run: pnpm --filter @tessera/shared build
 
+      - name: Build alerting
+        if: matrix.package == 'agent-runtime'
+        run: pnpm --filter @tessera/alerting build
+
       - name: Run tests (${{ matrix.package }})
         run: pnpm --filter "@tessera/${{ matrix.package }}" test
 
