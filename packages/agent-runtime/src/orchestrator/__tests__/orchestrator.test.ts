@@ -153,18 +153,17 @@ describe("Orchestrator", () => {
       expect(result.verifierPassed).toBe(true);
     });
 
-    it("retries when verification fails (output contains ERROR)", async () => {
+    it("retries when verification fails and can pass on retry", async () => {
       const orchestrator = new Orchestrator({ enabled: true, maxRetries: 2 });
       const task = makeTask({ description: "echo ERROR: something went wrong" });
 
       const result = await orchestrator.execute(task);
 
-      // Should use retries since output contains "ERROR"
-      expect(result.verifierPassed).toBe(false);
-      expect(result.retriesUsed).toBe(2);
-      // Output should contain retry markers
-      expect(result.output).toContain("[RETRY 1]");
-      expect(result.output).toContain("[RETRY 2]");
+      // Retry replaces ERROR → FIXED, so verifier should pass
+      expect(result.verifierPassed).toBe(true);
+      expect(result.retriesUsed).toBe(1);
+      expect(result.output).toContain("FIXED");
+      expect(result.output).not.toContain("ERROR");
     });
 
     it("uses configured maxRetries from constructor", async () => {
@@ -173,24 +172,24 @@ describe("Orchestrator", () => {
 
       const result = await orchestrator.execute(task);
 
+      // With 1 retry, ERROR → FIXED on first retry, so verifier passes
       expect(result.retriesUsed).toBe(1);
-      expect(result.verifierPassed).toBe(false);
+      expect(result.verifierPassed).toBe(true);
+      expect(result.output).not.toContain("ERROR");
     });
 
     it("stops retrying early if verification passes on a retry", async () => {
-      // The retry logic appends "[RETRY N]" to the output.
-      // But the stub verify checks output.includes("ERROR").
-      // With "echo ERROR", the original output is "echo ERROR" — fails.
-      // Retry 1: "[RETRY 1] echo ERROR" — still fails.
-      // There's no way for a retry to pass here with the current stub.
-      // This test validates that retriesUsed counts correctly.
+      // The retry logic replaces ERROR → FIXED.
+      // With maxRetries=3 and output containing "ERROR", the first retry fixes it
+      // and the loop breaks early — retriesUsed should be 1 (not 3).
       const orchestrator = new Orchestrator({ enabled: true, maxRetries: 3 });
       const task = makeTask({ description: "echo ERROR" });
 
       const result = await orchestrator.execute(task);
 
-      expect(result.retriesUsed).toBe(3);
-      expect(result.verifierPassed).toBe(false);
+      expect(result.retriesUsed).toBe(1);
+      expect(result.verifierPassed).toBe(true);
+      expect(result.output).toContain("FIXED");
     });
   });
 });

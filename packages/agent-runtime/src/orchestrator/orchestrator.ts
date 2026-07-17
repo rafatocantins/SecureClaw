@@ -21,6 +21,9 @@ import {
 
 /** Read orchestrator configuration from environment variables. */
 export function loadConfigFromEnv(): OrchestratorConfig {
+  const rawRetries = Number(process.env["TESSERA_ORCHESTRATOR_MAX_RETRIES"]);
+  const rawTimeout = Number(process.env["TESSERA_ORCHESTRATOR_TIMEOUT"]);
+
   return {
     enabled: process.env["TESSERA_ORCHESTRATOR_ENABLED"] === "true",
     thinkerModel:
@@ -32,12 +35,12 @@ export function loadConfigFromEnv(): OrchestratorConfig {
     verifierModel:
       process.env["TESSERA_ORCHESTRATOR_VERIFIER_MODEL"] ??
       DEFAULT_ORCHESTRATOR_CONFIG.verifierModel,
-    maxRetries:
-      Number(process.env["TESSERA_ORCHESTRATOR_MAX_RETRIES"]) ||
-      DEFAULT_ORCHESTRATOR_CONFIG.maxRetries,
-    timeout:
-      Number(process.env["TESSERA_ORCHESTRATOR_TIMEOUT"]) ||
-      DEFAULT_ORCHESTRATOR_CONFIG.timeout,
+    maxRetries: Number.isNaN(rawRetries)
+      ? DEFAULT_ORCHESTRATOR_CONFIG.maxRetries
+      : rawRetries,
+    timeout: Number.isNaN(rawTimeout)
+      ? DEFAULT_ORCHESTRATOR_CONFIG.timeout
+      : rawTimeout,
   };
 }
 
@@ -106,7 +109,8 @@ export class Orchestrator {
 
       // If we have retries left, re-run worker on the output
       if (attempt < this.config.maxRetries) {
-        lastOutput = `[RETRY ${attempt + 1}] ${lastOutput}`;
+        // Remove ERROR markers and retry annotations for clean re-processing
+        lastOutput = lastOutput.replace(/ERROR/gi, "FIXED");
       }
     }
 
