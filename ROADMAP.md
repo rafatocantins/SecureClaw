@@ -394,6 +394,23 @@ Acceptance criteria:
 
 Estimated effort: 2 sessions.
 
+### ~~3F — Model Orchestration Layer (Augustus Research, Priority 1)~~ → #29
+
+> **⚠️ REPRIORITIZED 2026-07-10:** Augustus research analysis of 14 papers (Sakana Fugu, TRINITY, Conductor, MoA, S²-MAD, TextGrad, Council Mode, etc.) shows the #1 gap is not multi-agent or preferences — it's that Tessera uses a single model per session.
+>
+> Every major paper in 2026 shows multi-model orchestration beats single-model by 5-15+ percentage points. Even a 7B orchestrator (Conductor) beats GPT-5 alone.
+>
+> **New Phase 3 priority order:**
+> 1. **Orchestration Layer** (#29, Augustus Sprint 1) — triage + model routing + TRINITY pipeline
+> 2. **Harness Self-Evolution** (#30, Augustus Sprint 2) — automated prompt/tool improvement from lessons
+> 3. **Verifier Gate** (#31, Augustus Sprint 3) — mandatory output validation before delivery
+> 4. **Multi-Agent Orchestration** (existing 3D, refined by Augustus Sprint 4)
+> 5. **User Preference Learning** (existing 3C)
+> 6. **Parallel Tool Execution** (existing 3E)
+>
+> **Cost:** ~€0.42/mês adicional (Flash triage + harness evolution + verifier gate)
+> **Research doc:** `/root/.hermes/cron/output/tessera-harness-research-jul2026.md`
+
 ### 3C — User Preference Learning (Priority 3)
 
 Track implicit preferences from user behavior across sessions:
@@ -591,34 +608,38 @@ Extend the marketplace with a full provenance chain:
 
 ## Immediate next actions (priority order)
 
-| # | Task | Effort | Phase |
-|---|---|---|---|
-| 1 | ~~Replace `better-sqlite3` with `node:sqlite` (built-in)~~ ✅ | done | DX-A |
-| 2 | ~~`pnpm dev` single-command start~~ ✅ | done | DX-B |
-| 3 | ~~`tessera init` wizard + `.env` support~~ ✅ | done | DX-C |
-| 4 | ~~GitHub Actions CI matrix~~ ✅ | done | DX-D |
-| 5 | ~~OTel spans in agent-loop~~ ✅ | done | Phase 1 |
-| 6 | ~~Token expiry + refresh endpoint~~ ✅ | done | Phase 2D |
-| 7 | ~~SSRF prevention + DNS rebinding defence~~ ✅ | done | Security |
-| 8 | ~~Tool output injection defence~~ ✅ | done | Security |
-| 9 | ~~Agent turn cap (`AGENT_MAX_TURNS_PER_SESSION`)~~ ✅ | done | Security |
-| 10 | ~~Control-UI chat panel~~ ✅ | done | UX |
-| 11 | ~~First bundled skill (`tessera/read-url`) + CLI tooling~~ ✅ | done | Skills |
-| 12 | ~~`tessera/web-search` skill + `tessera vault` CLI + credential injection pipeline~~ ✅ | done | Skills |
-| 13 | ~~Security headers (`@fastify/helmet` on gateway)~~ ✅ | done | Security |
-| 14 | ~~OTel completion — gateway spans + OTLP export~~ ✅ | done | Phase 1 |
-| 15 | ~~Token refresh in Control-UI (proactive refresh + silent reconnect, history preserved)~~ ✅ | done | UX |
-| 16 | ~~Hard quota enforcement per team~~ ✅ | done | Phase 2A |
-| 17 | ~~Webhook alerting (approvals, quota, injection)~~ ✅ | done | Phase 2A |
-| 18 | ~~Vault key rotation CLI command~~ ✅ | done | Phase 2B |
-| 19 | ~~Backup / restore CLI commands~~ ✅ | done | Phase 2C |
-| 19b | ~~Advanced injection detection (decode-then-scan + turn score + sensitivity)~~ ✅ | done | Phase 2E |
-| 20 | ~~Reflection loop + lessons learned store (T-3-01)~~ ✅ | done | Phase 3A |
-| 21 | ~~Vector/semantic memory retrieval (sqlite-vec) (T-3-02)~~ ✅ | done | Phase 3B |
-| 22 | User preference learning | ~1.5 sessions | Phase 3C |
-| 23 | Multi-agent orchestration | ~3–4 sessions | Phase 3D |
-| 24 | Parallel tool execution | ~1 session | Phase 3E |
-| 25 | ~~RBAC roles in token + gateway enforcement (T-4-01)~~ ✅ | done | Phase 4A |
+| # | Task | Effort | Phase | Issue |
+|---|---|---|---|---|
+| 1 | ~~Replace `better-sqlite3` with `node:sqlite` (built-in)~~ ✅ | done | DX-A | |
+| 2 | ~~`pnpm dev` single-command start~~ ✅ | done | DX-B | |
+| 3 | ~~`tessera init` wizard + `.env` support~~ ✅ | done | DX-C | |
+| 4 | ~~GitHub Actions CI matrix~~ ✅ | done | DX-D | |
+| 5 | ~~OTel spans in agent-loop~~ ✅ | done | Phase 1 | |
+| 6 | ~~Token expiry + refresh endpoint~~ ✅ | done | Phase 2D | |
+| 7 | ~~SSRF prevention + DNS rebinding defence~~ ✅ | done | Security | |
+| 8 | ~~Tool output injection defence~~ ✅ | done | Security | |
+| 9 | ~~Agent turn cap (`AGENT_MAX_TURNS_PER_SESSION`)~~ ✅ | done | Security | |
+| 10 | ~~Control-UI chat panel~~ ✅ | done | UX | |
+| 11 | ~~First bundled skill (`tessera/read-url`) + CLI tooling~~ ✅ | done | Skills | |
+| 12 | ~~`tessera/web-search` skill + `tessera vault` CLI + credential injection pipeline~~ ✅ | done | Skills | |
+| 13 | ~~Security headers (`@fastify/helmet` on gateway)~~ ✅ | done | Security | |
+| 14 | ~~OTel completion — gateway spans + OTLP export~~ ✅ | done | Phase 1 | |
+| 15 | ~~Token refresh in Control-UI (proactive refresh + silent reconnect, history preserved)~~ ✅ | done | UX | |
+| 16 | ~~Hard quota enforcement per team~~ ✅ | done | Phase 2A | |
+| 17 | ~~Webhook alerting (approvals, quota, injection)~~ ✅ | done | Phase 2A | |
+| 18 | ~~Vault key rotation CLI command~~ ✅ | done | Phase 2B | |
+| 19 | ~~Backup / restore CLI commands~~ ✅ | done | Phase 2C | |
+| 19b | ~~Advanced injection detection (decode-then-scan + turn score + sensitivity)~~ ✅ | done | Phase 2E | |
+| 20 | ~~Reflection loop + lessons learned store (T-3-01)~~ ✅ | done | Phase 3A | |
+| 21 | ~~Vector/semantic memory retrieval (sqlite-vec) (T-3-02)~~ ✅ | done | Phase 3B | |
+| 22 | **ADR-007: Multi-Model Orchestration Design Doc** ⬅️ HOJE | ~0.5 sessions | Phase 3F | [#32](https://github.com/rafatocantins/Tessera/issues/32) |
+| 23 | **Orchestration Layer — Model Selection + Role Assignment** | ~3 sessions | Phase 3F | [#29](https://github.com/rafatocantins/Tessera/issues/29) |
+| 24 | **Harness Self-Evolution — Automated Prompt/Tool Improvement** | ~2 sessions | Phase 3F | [#30](https://github.com/rafatocantins/Tessera/issues/30) |
+| 25 | **Verifier Gate — Mandatory Output Validation** | ~1.5 sessions | Phase 3F | [#31](https://github.com/rafatocantins/Tessera/issues/31) |
+| 26 | User preference learning | ~1.5 sessions | Phase 3C | |
+| 27 | Multi-agent orchestration | ~3–4 sessions | Phase 3D | |
+| 28 | Parallel tool execution | ~1 session | Phase 3E | |
+| 29 | ~~RBAC roles in token + gateway enforcement (T-4-01)~~ ✅ | done | Phase 4A | |
 
 ---
 
