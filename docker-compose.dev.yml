@@ -17,6 +17,7 @@ volumes:
   audit-data:
   skills-data:
   memory-data:
+  certs:
 
 services:
   gateway:
