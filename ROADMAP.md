@@ -394,7 +394,12 @@ Acceptance criteria:
 
 Estimated effort: 2 sessions.
 
-### ~~3F — Model Orchestration Layer (Augustus Research, Priority 1)~~ → #29
+### ~~3F — Model Orchestration Layer (Augustus Research, Priority 1)~~ → #29 🟢 IN PROGRESS
+
+**2026-07-20:** Orchestrator scaffold PR (#44, 589 lines, 24 tests) merged to main.  
+Triage classifier, model router, task decomposer, and output verifier modules scaffolded.  
+Integration test health check fix PR (#47) — agent-runtime `depends_on` upgraded to `service_healthy`.  
+Issue #29 (triage + model routing) is now unblocked and ready for implementation.
 
 > **⚠️ REPRIORITIZED 2026-07-10:** Augustus research analysis of 14 papers (Sakana Fugu, TRINITY, Conductor, MoA, S²-MAD, TextGrad, Council Mode, etc.) shows the #1 gap is not multi-agent or preferences — it's that Tessera uses a single model per session.
 >
