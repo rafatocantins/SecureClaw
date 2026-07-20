@@ -92,16 +92,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     depends_on:
       credential-vault:
-        condition: service_started
+        condition: service_healthy
       audit-system:
-        condition: service_started
+        condition: service_healthy
+      sandbox-runtime:
+        condition: service_healthy
       skills-engine:
-        condition: service_started
+        condition: service_healthy
       memory-store:
-        condition: service_started
+        condition: service_healthy
 
   # ── Credential Vault ───────────────────────────────────────────────────────
   credential-vault:
