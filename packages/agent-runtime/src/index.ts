@@ -15,6 +15,14 @@ export type { SessionContext } from "./session/session-context.js";
 export type { PolicyDecisionResult } from "./tools/policy-engine.js";
 export type { SystemPromptParams } from "./prompt/system-prompt-builder.js";
 
+// ── Phase 3D: Multi-Model Orchestrator ────────────────────────────────────
+export { Orchestrator, loadConfigFromEnv } from "./orchestrator/orchestrator.js";
+export { classifyComplexity } from "./orchestrator/triage-classifier.js";
+export { routeModel } from "./orchestrator/model-router.js";
+export { decompose } from "./orchestrator/task-decomposer.js";
+export { verify } from "./orchestrator/output-verifier.js";
+export type { TaskComplexity, OrchestratorConfig, Task, TaskResult } from "./orchestrator/types.js";
+
 // ── Standalone server entry point ─────────────────────────────────────────
 const isMain = process.argv[1]?.endsWith("index.js");
 if (isMain) {
