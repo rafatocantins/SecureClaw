@@ -39,6 +39,7 @@ COPY --from=build --chown=10001:10001 /app/packages/agent-runtime/package.json p
 COPY --from=build --chown=10001:10001 /app/packages/alerting/dist/ packages/alerting/dist/
 COPY --from=build --chown=10001:10001 /app/packages/alerting/package.json packages/alerting/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
+COPY --from=deps --chown=10001:10001 /app/packages/shared/node_modules/ packages/shared/node_modules/
 COPY --from=deps --chown=10001:10001 /app/packages/agent-runtime/node_modules/ packages/agent-runtime/node_modules/
 
 USER 10001:10001

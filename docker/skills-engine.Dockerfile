@@ -31,6 +31,7 @@ COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages
 COPY --from=build --chown=10001:10001 /app/packages/skills-engine/dist/ packages/skills-engine/dist/
 COPY --from=build --chown=10001:10001 /app/packages/skills-engine/package.json packages/skills-engine/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
+COPY --from=deps --chown=10001:10001 /app/packages/shared/node_modules/ packages/shared/node_modules/
 COPY --from=deps --chown=10001:10001 /app/packages/skills-engine/node_modules/ packages/skills-engine/node_modules/
 
 USER 10001:10001
