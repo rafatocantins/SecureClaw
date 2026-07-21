@@ -128,7 +128,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 30s
 
   # ── Audit System ───────────────────────────────────────────────────────────
   audit-system:
@@ -155,7 +155,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 30s
 
   # ── Skills Engine ──────────────────────────────────────────────────────────
   skills-engine:
@@ -234,7 +234,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 30s
 
   # ── Telegram Channel ────────────────────────────────────────────────────────
   # Start with: docker compose --profile channels up -d
