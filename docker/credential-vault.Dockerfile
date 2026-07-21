@@ -35,6 +35,7 @@ COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages
 COPY --from=build --chown=10001:10001 /app/packages/credential-vault/dist/ packages/credential-vault/dist/
 COPY --from=build --chown=10001:10001 /app/packages/credential-vault/package.json packages/credential-vault/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
+COPY --from=deps --chown=10001:10001 /app/packages/shared/node_modules/ packages/shared/node_modules/
 COPY --from=deps --chown=10001:10001 /app/packages/credential-vault/node_modules/ packages/credential-vault/node_modules/
 
 USER 10001:10001
@@ -43,5 +44,8 @@ ENV NODE_ENV=production
 VOLUME ["/data/vault"]
 
 EXPOSE 19002
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "const net=require('net');const c=net.connect(19002,'127.0.0.1',()=>{c.destroy();process.exit(0)});c.on('error',()=>process.exit(1));" || exit 1
 
 CMD ["node", "packages/credential-vault/dist/index.js"]

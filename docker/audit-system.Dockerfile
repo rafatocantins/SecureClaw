@@ -31,6 +31,7 @@ COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages
 COPY --from=build --chown=10001:10001 /app/packages/audit-system/dist/ packages/audit-system/dist/
 COPY --from=build --chown=10001:10001 /app/packages/audit-system/package.json packages/audit-system/
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
+COPY --from=deps --chown=10001:10001 /app/packages/shared/node_modules/ packages/shared/node_modules/
 COPY --from=deps --chown=10001:10001 /app/packages/audit-system/node_modules/ packages/audit-system/node_modules/
 
 USER 10001:10001
@@ -39,5 +40,8 @@ ENV NODE_ENV=production
 VOLUME ["/data/audit"]
 
 EXPOSE 19003
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "const net=require('net');const c=net.connect(19003,'127.0.0.1',()=>{c.destroy();process.exit(0)});c.on('error',()=>process.exit(1));" || exit 1
 
 CMD ["node", "packages/audit-system/dist/index.js"]
