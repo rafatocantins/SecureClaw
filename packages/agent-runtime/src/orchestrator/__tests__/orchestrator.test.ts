@@ -61,6 +61,30 @@ describe("classifyComplexity", () => {
     // "critical" + "refactor" → should be "critical"
     expect(classifyComplexity("critical refactor of security module")).toBe("critical");
   });
+
+  it("classifies CVE and exploit keywords as critical", () => {
+    expect(classifyComplexity("CVE-2025-1234 found in dependencies")).toBe("critical");
+    expect(classifyComplexity("zero-day exploit in production")).toBe("critical");
+    expect(classifyComplexity("p0: outage affecting all users")).toBe("critical");
+  });
+
+  it("classifies integration and deployment tasks as complex", () => {
+    expect(classifyComplexity("integration tests failing on CI")).toBe("complex");
+    expect(classifyComplexity("deploy to production environment")).toBe("complex");
+    expect(classifyComplexity("infrastructure as code migration")).toBe("complex");
+  });
+
+  it("is case-insensitive", () => {
+    expect(classifyComplexity("URGENT: fix the bug")).toBe("critical");
+    expect(classifyComplexity("Ping The Server")).toBe("simple");
+    expect(classifyComplexity("DEPLOY to staging")).toBe("complex");
+  });
+
+  it("handles long descriptions with mixed signals", () => {
+    const desc = "Run a simple ping test to check if the security infrastructure is working after deployment";
+    // "critical" (security) takes priority over "complex" (infrastructure, deployment) and "simple" (ping)
+    expect(classifyComplexity(desc)).toBe("critical");
+  });
 });
 
 // ── routeModel ──────────────────────────────────────────────────────────────
@@ -82,6 +106,46 @@ describe("routeModel", () => {
 
   it("routes critical tasks to thinkerModel", () => {
     expect(routeModel("critical", config)).toBe(config.thinkerModel);
+  });
+
+  it("routes medium tasks to workerModel with custom configs", () => {
+    const customConfig = makeConfig({
+      workerModel: "custom/worker-v2",
+      thinkerModel: "custom/thinker-v2",
+    });
+    expect(routeModel("medium", customConfig)).toBe("custom/worker-v2");
+    expect(routeModel("complex", customConfig)).toBe("custom/thinker-v2");
+  });
+
+  it("routes all known tiers correctly end-to-end", () => {
+    const tiers: Array<{ tier: import("../types.js").TaskComplexity; expected: "worker" | "thinker" }> = [
+      { tier: "simple", expected: "worker" },
+      { tier: "medium", expected: "worker" },
+      { tier: "complex", expected: "thinker" },
+      { tier: "critical", expected: "thinker" },
+    ];
+    for (const { tier, expected } of tiers) {
+      const model = routeModel(tier, config);
+      if (expected === "worker") {
+        expect(model).toBe(config.workerModel);
+      } else {
+        expect(model).toBe(config.thinkerModel);
+      }
+    }
+  });
+
+  it("integration: classify then route produces correct model chain", () => {
+    // A simple echo task should go through worker model
+    const complexity = classifyComplexity("echo hello");
+    const model = routeModel(complexity, config);
+    expect(complexity).toBe("simple");
+    expect(model).toBe(config.workerModel);
+
+    // A security incident should go through thinker model
+    const complexity2 = classifyComplexity("security breach in production");
+    const model2 = routeModel(complexity2, config);
+    expect(complexity2).toBe("critical");
+    expect(model2).toBe(config.thinkerModel);
   });
 });
 
