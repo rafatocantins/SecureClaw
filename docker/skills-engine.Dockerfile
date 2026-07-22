@@ -9,7 +9,7 @@ COPY .npmrc pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/skills-engine/package.json packages/skills-engine/
 RUN pnpm install --frozen-lockfile --filter @tessera/skills-engine... && \
-    mkdir -p /app/packages/skills-engine/node_modules
+    mkdir -p /app/packages/shared/node_modules /app/packages/skills-engine/node_modules
 
 FROM deps AS build
 COPY packages/shared/ packages/shared/
