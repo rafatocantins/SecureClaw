@@ -9,7 +9,7 @@ COPY .npmrc pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/memory-store/package.json packages/memory-store/
 RUN pnpm install --frozen-lockfile --filter @tessera/memory-store... && \
-    mkdir -p /app/packages/memory-store/node_modules
+    mkdir -p /app/packages/shared/node_modules /app/packages/memory-store/node_modules
 
 FROM deps AS build
 COPY packages/shared/ packages/shared/

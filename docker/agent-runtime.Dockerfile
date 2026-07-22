@@ -11,7 +11,7 @@ COPY packages/input-sanitizer/package.json packages/input-sanitizer/
 COPY packages/agent-runtime/package.json packages/agent-runtime/
 COPY packages/alerting/package.json packages/alerting/
 RUN pnpm install --frozen-lockfile --filter @tessera/agent-runtime... && \
-    mkdir -p /app/packages/agent-runtime/node_modules
+    mkdir -p /app/packages/shared/node_modules /app/packages/agent-runtime/node_modules
 
 FROM deps AS build
 COPY packages/shared/ packages/shared/
