@@ -23,6 +23,14 @@ export { decompose } from "./orchestrator/task-decomposer.js";
 export { verify } from "./orchestrator/output-verifier.js";
 export type { TaskComplexity, OrchestratorConfig, Task, TaskResult } from "./orchestrator/types.js";
 
+
+// ── Verifier Gate ──────────────────────────────────────────────────────────
+export { OutputVerifier } from "./verifier/output-verifier.js";
+export type {
+  VerificationResult,
+  VerificationCheck,
+  VerificationInput,
+} from "./verifier/types.js";
 // ── Standalone server entry point ─────────────────────────────────────────
 const isMain = process.argv[1]?.endsWith("index.js");
 if (isMain) {
