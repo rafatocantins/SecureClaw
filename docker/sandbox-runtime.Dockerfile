@@ -24,14 +24,18 @@ RUN pnpm --filter @tessera/shared build && \
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
-# sandbox-runtime needs the docker group to access the socket
-# The docker socket is mounted at /var/run/docker.sock
-RUN addgroup -g 998 docker 2>/dev/null || true && \
+# sandbox-runtime needs the docker group to access the socket.
+# DOCKER_GID varies per host (e.g. 998 on Alpine, 999 on Ubuntu, 1001 on GHA).
+# Build with: docker build --build-arg DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) ...
+# When running via docker compose, use group_add instead of build-time GID.
+ARG DOCKER_GID=998
+RUN addgroup -g ${DOCKER_GID} docker 2>/dev/null || true && \
     addgroup -g 10001 tessera && \
     adduser -u 10001 -G tessera -s /bin/sh -D tessera && \
     adduser tessera docker
 
 COPY --from=build --chown=10001:10001 /app/packages/shared/dist/ packages/shared/dist/
+COPY --from=build --chown=10001:10001 /app/packages/shared/src/proto/ packages/shared/src/proto/
 COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages/shared/
 COPY --from=build --chown=10001:10001 /app/packages/sandbox-runtime/dist/ packages/sandbox-runtime/dist/
 COPY --from=build --chown=10001:10001 /app/packages/sandbox-runtime/package.json packages/sandbox-runtime/

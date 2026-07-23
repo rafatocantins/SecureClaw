@@ -31,6 +31,7 @@ RUN addgroup -g 10001 tessera && \
     adduser -u 10001 -G tessera -s /bin/sh -D tessera
 
 COPY --from=build --chown=10001:10001 /app/packages/shared/dist/ packages/shared/dist/
+COPY --from=build --chown=10001:10001 /app/packages/shared/src/proto/ packages/shared/src/proto/
 COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages/shared/
 COPY --from=build --chown=10001:10001 /app/packages/input-sanitizer/dist/ packages/input-sanitizer/dist/
 COPY --from=build --chown=10001:10001 /app/packages/input-sanitizer/package.json packages/input-sanitizer/

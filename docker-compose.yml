@@ -181,7 +181,7 @@ services:
     restart: unless-stopped
     depends_on:
       sandbox-runtime:
-        condition: service_started
+        condition: service_healthy
 
   # ── Memory Store ───────────────────────────────────────────────────────────
   memory-store:
@@ -224,6 +224,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - certs:/app/certs:ro
+    group_add:
+      - "${DOCKER_GROUP_ID:-998}"
     cap_drop:
       - ALL
     security_opt:
