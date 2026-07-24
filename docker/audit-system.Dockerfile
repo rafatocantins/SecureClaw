@@ -27,6 +27,7 @@ RUN addgroup -g 10001 tessera && \
 RUN mkdir -p /data/audit && chown -R 10001:10001 /data
 
 COPY --from=build --chown=10001:10001 /app/packages/shared/dist/ packages/shared/dist/
+COPY --from=build --chown=10001:10001 /app/packages/shared/src/proto/ packages/shared/src/proto/
 COPY --from=build --chown=10001:10001 /app/packages/shared/package.json packages/shared/
 COPY --from=build --chown=10001:10001 /app/packages/audit-system/dist/ packages/audit-system/dist/
 COPY --from=build --chown=10001:10001 /app/packages/audit-system/package.json packages/audit-system/
