@@ -27,3 +27,7 @@ services:
   audit-system:
     environment:
       AUDIT_COST_CAP_USD: "${TEST_COST_CAP_USD:-0.001}"
+
+  sandbox-runtime:
+    environment:
+      TESSERA_ALLOW_RUNC: "true"

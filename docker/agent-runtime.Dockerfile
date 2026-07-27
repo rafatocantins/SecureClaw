@@ -11,7 +11,7 @@ COPY packages/input-sanitizer/package.json packages/input-sanitizer/
 COPY packages/agent-runtime/package.json packages/agent-runtime/
 COPY packages/alerting/package.json packages/alerting/
 RUN pnpm install --frozen-lockfile --filter @tessera/agent-runtime... && \
-    mkdir -p /app/packages/shared/node_modules /app/packages/agent-runtime/node_modules
+    mkdir -p /app/packages/shared/node_modules /app/packages/agent-runtime/node_modules /app/packages/alerting/node_modules /app/packages/input-sanitizer/node_modules
 
 FROM deps AS build
 COPY packages/shared/ packages/shared/
@@ -42,6 +42,8 @@ COPY --from=build --chown=10001:10001 /app/packages/alerting/package.json packag
 COPY --from=deps --chown=10001:10001 /app/node_modules/ node_modules/
 COPY --from=deps --chown=10001:10001 /app/packages/shared/node_modules/ packages/shared/node_modules/
 COPY --from=deps --chown=10001:10001 /app/packages/agent-runtime/node_modules/ packages/agent-runtime/node_modules/
+COPY --from=deps --chown=10001:10001 /app/packages/alerting/node_modules/ packages/alerting/node_modules/
+COPY --from=deps --chown=10001:10001 /app/packages/input-sanitizer/node_modules/ packages/input-sanitizer/node_modules/
 
 USER 10001:10001
 

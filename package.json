@@ -15,19 +15,17 @@
     "proto:gen": "node scripts/proto-gen.mjs",
     "certs:gen": "node scripts/gen-certs.mjs",
     "preinstall": "npx only-allow pnpm",
-
-    "dev:vault":    "node packages/credential-vault/dist/index.js",
-    "dev:audit":    "node packages/audit-system/dist/index.js",
-    "dev:memory":   "node packages/memory-store/dist/index.js",
-    "dev:skills":   "node packages/skills-engine/dist/index.js",
-    "dev:sandbox":  "cross-env TESSERA_ALLOW_RUNC=true node packages/sandbox-runtime/dist/index.js",
-    "dev:agent":    "node packages/agent-runtime/dist/index.js",
-    "dev:gateway":  "node packages/gateway/dist/index.js",
-    "dev:ui":       "pnpm --filter @tessera/control-ui dev",
-
+    "dev:vault": "node packages/credential-vault/dist/index.js",
+    "dev:audit": "node packages/audit-system/dist/index.js",
+    "dev:memory": "node packages/memory-store/dist/index.js",
+    "dev:skills": "node packages/skills-engine/dist/index.js",
+    "dev:sandbox": "cross-env TESSERA_ALLOW_RUNC=true node packages/sandbox-runtime/dist/index.js",
+    "dev:agent": "node packages/agent-runtime/dist/index.js",
+    "dev:gateway": "node packages/gateway/dist/index.js",
+    "dev:ui": "pnpm --filter @tessera/control-ui dev",
     "dev:services": "concurrently --kill-others-on-fail -n vault,audit,mem,skills,box,agent,gw -c magenta,blue,cyan,yellow,red,green,white \"pnpm dev:vault\" \"pnpm dev:audit\" \"pnpm dev:memory\" \"pnpm dev:skills\" \"pnpm dev:sandbox\" \"pnpm dev:agent\" \"pnpm dev:gateway\"",
-    "dev":          "concurrently --kill-others-on-fail -n vault,audit,mem,skills,box,agent,gw,ui -c magenta,blue,cyan,yellow,red,green,white,bgBlue.white \"pnpm dev:vault\" \"pnpm dev:audit\" \"pnpm dev:memory\" \"pnpm dev:skills\" \"pnpm dev:sandbox\" \"pnpm dev:agent\" \"pnpm dev:gateway\" \"pnpm dev:ui\"",
-    "dev:docker":   "docker compose -f docker-compose.dev.yml up"
+    "dev": "concurrently --kill-others-on-fail -n vault,audit,mem,skills,box,agent,gw,ui -c magenta,blue,cyan,yellow,red,green,white,bgBlue.white \"pnpm dev:vault\" \"pnpm dev:audit\" \"pnpm dev:memory\" \"pnpm dev:skills\" \"pnpm dev:sandbox\" \"pnpm dev:agent\" \"pnpm dev:gateway\" \"pnpm dev:ui\"",
+    "dev:docker": "docker compose -f docker-compose.dev.yml up"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.0.0",
@@ -40,5 +38,15 @@
   },
   "dependencies": {
     "pnpm": "^10.30.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "protobufjs",
+      "ssh2",
+      "cpu-features",
+      "keytar"
+    ]
   }
 }
