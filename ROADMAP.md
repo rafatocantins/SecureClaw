@@ -637,10 +637,10 @@ Extend the marketplace with a full provenance chain:
 | 19b | ~~Advanced injection detection (decode-then-scan + turn score + sensitivity)~~ ✅ | done | Phase 2E | |
 | 20 | ~~Reflection loop + lessons learned store (T-3-01)~~ ✅ | done | Phase 3A | |
 | 21 | ~~Vector/semantic memory retrieval (sqlite-vec) (T-3-02)~~ ✅ | done | Phase 3B | |
-| 22 | **ADR-007: Multi-Model Orchestration Design Doc** ⬅️ HOJE | ~0.5 sessions | Phase 3F | [#32](https://github.com/rafatocantins/Tessera/issues/32) |
-| 23 | **Orchestration Layer — Model Selection + Role Assignment** | ~3 sessions | Phase 3F | [#29](https://github.com/rafatocantins/Tessera/issues/29) |
-| 24 | **Harness Self-Evolution — Automated Prompt/Tool Improvement** | ~2 sessions | Phase 3F | [#30](https://github.com/rafatocantins/Tessera/issues/30) |
-| 25 | **Verifier Gate — Mandatory Output Validation** | ~1.5 sessions | Phase 3F | [#31](https://github.com/rafatocantins/Tessera/issues/31) |
+| 22 | ~~ADR-007: Multi-Model Orchestration Design Doc~~ ✅ | done | Phase 3F | [#32](https://github.com/rafatocantins/Tessera/issues/32) |
+| 23 | ~~Orchestration Layer — Model Selection + Role Assignment~~ ✅ | done | Phase 3F | [#29](https://github.com/rafatocantins/Tessera/issues/29) |
+| 24 | **Harness Self-Evolution — Automated Prompt/Tool Improvement** 🔓⚡ | ~1.5 sessions | Phase 3F | [#30](https://github.com/rafatocantins/Tessera/issues/30) |
+| 25 | ~~Verifier Gate — Mandatory Output Validation~~ ✅ | done | Phase 3F | [#31](https://github.com/rafatocantins/Tessera/issues/31) |
 | 26 | User preference learning | ~1.5 sessions | Phase 3C | |
 | 27 | Multi-agent orchestration | ~3–4 sessions | Phase 3D | |
 | 28 | Parallel tool execution | ~1 session | Phase 3E | |
