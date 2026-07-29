@@ -29,7 +29,17 @@ type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type StreamCall<Req, Res> = grpc.ServerWritableStream<Req, Res>;
 type Callback<Res> = grpc.sendUnaryData<Res>;
 
-export function makeAgentImpl(sessionManager: SessionManager, agentLoop: AgentLoop) {
+export interface ProviderConfig {
+  getApiKey(provider: string): string | undefined;
+  getModel(provider: string): string | undefined;
+  getBaseUrl(provider: string): string | undefined;
+}
+
+export function makeAgentImpl(
+  sessionManager: SessionManager,
+  agentLoop: AgentLoop,
+  providerConfig: ProviderConfig
+) {
   return {
     CreateSession(
       call: UnaryCall<GrpcCreateSessionRequest, GrpcCreateSessionResponse>,
@@ -42,14 +52,14 @@ export function makeAgentImpl(sessionManager: SessionManager, agentLoop: AgentLo
         let provider;
         try {
           const providerName = req.provider as "anthropic" | "openai" | "gemini" | "ollama";
-          const apiKey = process.env[`${req.provider.toUpperCase()}_API_KEY`];
-          const model = process.env[`${req.provider.toUpperCase()}_MODEL`];
+          const apiKey = providerConfig.getApiKey(req.provider);
+          const model = providerConfig.getModel(req.provider);
 
           if (providerName === "ollama") {
             provider = createProvider({
               provider: "ollama",
               model: model ?? "llama3.2",
-              base_url: process.env["OLLAMA_BASE_URL"] ?? "http://127.0.0.1:11434",
+              base_url: providerConfig.getBaseUrl("ollama") ?? "http://127.0.0.1:11434",
               max_tokens: 4096,
             });
           } else if (providerName === "anthropic") {
