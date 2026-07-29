@@ -137,7 +137,9 @@ export class AgentLoop {
     /** Optional — when absent, conversation history is not persisted across sessions */
     private readonly memoryClient?: MemoryGrpcClient,
     /** Optional — when absent, webhook alerting is disabled */
-    private readonly alertingService?: AlertingService
+    private readonly alertingService?: AlertingService,
+    /** Optional — called when a session ends (normal completion or error) */
+    private readonly onSessionEnd?: (sessionId: string, reason: string) => void | Promise<void>
   ) {}
 
   /**
@@ -172,6 +174,7 @@ export class AgentLoop {
           pattern_matched: sanitizeResult.injection_scan.matches[0]?.pattern_id ?? "unknown",
         },
       };
+      void this.onSessionEnd?.(ctx.session_id, "Injection detected in user input");
       return; // Reject the message
     }
 
@@ -192,6 +195,7 @@ export class AgentLoop {
             message: new CostCapError(summary.total_cost_usd, summary.cap_usd).message,
           },
         };
+        void this.onSessionEnd?.(ctx.session_id, "Daily cost cap exceeded");
         return;
       }
     } catch {
@@ -234,6 +238,7 @@ export class AgentLoop {
             message: `Team quota of $${quotaStatus.quota_usd.toFixed(2)} USD exceeded`,
           },
         };
+        void this.onSessionEnd?.(ctx.session_id, "Team quota exceeded");
         return;
       }
     } catch {
@@ -273,6 +278,7 @@ export class AgentLoop {
       return 20; // default
     })();
 
+    let endReason = "complete";
     try {
     // ── Memory: load prior conversation history and lessons on first turn ────────
     if (this.memoryClient && ctx.messages.length === 0) {
@@ -955,11 +961,13 @@ export class AgentLoop {
       },
     };
     } catch (err) {
+      endReason = err instanceof Error ? err.message : String(err);
       sessionSpan.recordException(err instanceof Error ? err : new Error(String(err)));
       sessionSpan.setStatus({ code: SpanStatusCode.ERROR });
       throw err;
     } finally {
       sessionSpan.end();
+      void this.onSessionEnd?.(ctx.session_id, endReason);
     }
   }
 }
