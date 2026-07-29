@@ -24,6 +24,25 @@ export { verify } from "./orchestrator/output-verifier.js";
 export type { TaskComplexity, OrchestratorConfig, Task, TaskResult } from "./orchestrator/types.js";
 
 
+// ── Harness Evolution ──────────────────────────────────────────────────────
+export { SessionAnalyzer } from "./harness-evolution/session-analyzer.js";
+export {
+  detectToolFailures,
+  detectLoops,
+  detectInjectionPatterns,
+  detectApprovalBottlenecks,
+} from "./harness-evolution/pattern-detectors.js";
+export type {
+  FailurePattern,
+  SessionAnalysis,
+  HarnessPatch,
+  ConfidenceScore,
+  AuditService,
+  AuditSession,
+  AuditEvent,
+} from "./harness-evolution/types.js";
+export type { PatternSummary } from "./harness-evolution/session-analyzer.js";
+
 // ── Verifier Gate ──────────────────────────────────────────────────────────
 export { OutputVerifier } from "./verifier/output-verifier.js";
 export type {
