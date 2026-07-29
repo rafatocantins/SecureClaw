@@ -22,7 +22,6 @@ jobs:
   cross-platform:
     name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
 
     strategy:
       fail-fast: false   # surface all failures, not just the first one
