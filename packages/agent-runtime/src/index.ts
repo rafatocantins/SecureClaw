@@ -10,6 +10,7 @@ export { OpenAIProvider } from "./llm/openai.provider.js";
 export { GeminiProvider } from "./llm/gemini.provider.js";
 export { OllamaProvider } from "./llm/ollama.provider.js";
 export { startAgentGrpcServer } from "./grpc/server.js";
+export type { ProviderConfig } from "./grpc/agent.impl.js";
 export type { LLMProvider, LLMMessage, LLMTool, LLMStreamChunk } from "./llm/provider.interface.js";
 export type { SessionContext } from "./session/session-context.js";
 export type { PolicyDecisionResult } from "./tools/policy-engine.js";
@@ -121,10 +122,24 @@ if (isMain) {
 
   const agentLoop = new Loop(sanitizer, policyEngine, sessionManager.approvalGate, vaultClient, auditClient, sandboxClient, skillsClient, memoryClient, alertingService);
 
+  // Provider configuration — centralizes all LLM provider env reads at startup.
+  const providerConfig: ProviderConfig = {
+    getApiKey(provider: string): string | undefined {
+      return process.env[`${provider.toUpperCase()}_API_KEY`];
+    },
+    getModel(provider: string): string | undefined {
+      return process.env[`${provider.toUpperCase()}_MODEL`];
+    },
+    getBaseUrl(provider: string): string | undefined {
+      if (provider === "ollama") return process.env["OLLAMA_BASE_URL"];
+      return undefined;
+    },
+  };
+
   // Read gRPC bind address at startup (was previously read inside startAgentGrpcServer)
   const agentRuntimeAddr = process.env["AGENT_RUNTIME_ADDR"] ?? "0.0.0.0:19001";
 
-  await start(sessionManager, agentLoop, agentRuntimeAddr);
+  await start(sessionManager, agentLoop, providerConfig, agentRuntimeAddr);
   process.stdout.write("[agent-runtime] Service ready\n");
 
   // Graceful shutdown: flush OTel spans before exit
