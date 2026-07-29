@@ -38,6 +38,11 @@ export interface ConfidenceScore {
   recommendation: "apply" | "review" | "reject";
 }
 
+export interface GeneratedPatch {
+  patch: HarnessPatch;
+  confidence: ConfidenceScore;
+}
+
 export interface AuditService {
   getRecentSessions(limit: number): Promise<AuditSession[]>;
   getSessionEvents(sessionId: string): Promise<AuditEvent[]>;
