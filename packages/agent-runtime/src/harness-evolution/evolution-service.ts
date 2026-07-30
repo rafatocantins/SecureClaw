@@ -203,7 +203,7 @@ export class HarnessEvolutionService {
     this.patchStore.set(patch.id, {
       ...patch,
       applied,
-      appliedAt: applied ? Date.now() : undefined,
+      ...(applied ? { appliedAt: Date.now() } : {}),
     });
   }
 
