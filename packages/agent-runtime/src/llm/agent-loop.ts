@@ -322,7 +322,7 @@ export class AgentLoop {
       }
 
       // Query active harness patches for prompt injection
-      let activePatches: HarnessPatchPrompt[] | undefined;
+      let activePatches: HarnessPatchPrompt[] = [];
       try {
         const rawPatches = await this.memoryClient.getActivePatches(ctx.user_id);
         activePatches = rawPatches
