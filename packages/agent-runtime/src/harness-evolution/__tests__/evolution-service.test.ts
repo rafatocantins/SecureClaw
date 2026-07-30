@@ -91,7 +91,10 @@ function mockAuditGrpcClient(): AuditGrpcClient {
 }
 
 function mockMemoryGrpcClient(): MemoryGrpcClient {
-  return {} as unknown as MemoryGrpcClient;
+  return {
+    storeHarnessPatch: vi.fn(),
+    getActivePatches: vi.fn().mockResolvedValue([]),
+  } as unknown as MemoryGrpcClient;
 }
 
 // ── Test 1: evolve() with 0 sessions → empty EvolutionResult ────────────────
