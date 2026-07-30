@@ -98,6 +98,32 @@ function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
+export interface StoredHarnessPatch {
+  id: string;
+  patch_type: string;
+  target: string;
+  proposed_change: string;
+  confidence: number;
+  recommendation: string;
+  source_patterns: string;
+  applied: number;
+  applied_at: number | null;
+  generated_at: number;
+}
+
+export interface StoreHarnessPatchParams {
+  id: string;
+  patch_type: string;
+  target: string;
+  proposed_change: string;
+  confidence: number;
+  recommendation: string;
+  source_patterns: string;
+  applied: number;
+  applied_at: number | null;
+  generated_at: number;
+}
+
 export class MemoryService {
   private readonly db: DatabaseSync;
   private readonly dbPath: string | undefined;
@@ -124,6 +150,9 @@ export class MemoryService {
   // Embeddings
   private stmtUpsertEmbedding!: StatementSync;
   private stmtDeleteUserEmbeddings!: StatementSync;
+  // Harness patches
+  private stmtUpsertHarnessPatch!: StatementSync;
+  private stmtGetActivePatches!: StatementSync;
 
   constructor(db: DatabaseSync, dbPath?: string, embeddingClient?: EmbeddingClient) {
     this.db = db;
@@ -253,6 +282,32 @@ export class MemoryService {
                 (SELECT id FROM messages WHERE user_id = ?))
           OR (source_table = 'lessons' AND source_id IN
                 (SELECT id FROM lessons WHERE user_id = ?))`
+    );
+
+    // ── Harness patches ────────────────────────────────────────────────────
+    this.stmtUpsertHarnessPatch = this.db.prepare(
+      `INSERT INTO harness_patches
+         (id, patch_type, target, proposed_change, confidence, recommendation,
+          source_patterns, applied, applied_at, generated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         patch_type      = excluded.patch_type,
+         target          = excluded.target,
+         proposed_change = excluded.proposed_change,
+         confidence      = excluded.confidence,
+         recommendation  = excluded.recommendation,
+         source_patterns = excluded.source_patterns,
+         applied         = excluded.applied,
+         applied_at      = excluded.applied_at`
+    );
+
+    this.stmtGetActivePatches = this.db.prepare(
+      `SELECT id, patch_type, target, proposed_change, confidence,
+              recommendation, source_patterns, applied, applied_at, generated_at
+       FROM harness_patches
+       WHERE applied = 0
+       ORDER BY confidence DESC, generated_at DESC
+       LIMIT ?`
     );
   }
 
@@ -555,6 +610,34 @@ export class MemoryService {
   listLessons(userId: string, limit = 20): StoredLesson[] {
     const capped = Math.min(limit, 100);
     return this.stmtListLessons.all(userId, capped) as unknown as StoredLesson[];
+  }
+
+  /**
+   * Store (upsert) a harness patch. Idempotent — re-running with the same
+   * id updates the existing row, including the `applied` flag.
+   */
+  storeHarnessPatch(params: StoreHarnessPatchParams): void {
+    this.stmtUpsertHarnessPatch.run(
+      params.id,
+      params.patch_type,
+      params.target,
+      params.proposed_change,
+      params.confidence,
+      params.recommendation,
+      params.source_patterns,
+      params.applied,
+      params.applied_at,
+      params.generated_at,
+    );
+  }
+
+  /**
+   * Get harness patches that have not been applied yet, ordered by
+   * confidence DESC then most recent first.
+   */
+  getActivePatches(limit = 50): StoredHarnessPatch[] {
+    const capped = Math.min(limit, 200);
+    return this.stmtGetActivePatches.all(capped) as unknown as StoredHarnessPatch[];
   }
 
   /** Return the path to the underlying SQLite database file. */

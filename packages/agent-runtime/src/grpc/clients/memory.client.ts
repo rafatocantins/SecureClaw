@@ -24,6 +24,11 @@ import type {
   GrpcListLessonsRequest,
   GrpcListLessonsResponse,
   GrpcStoredLesson,
+  GrpcStoreHarnessPatchRequest,
+  GrpcStoreHarnessPatchResponse,
+  GrpcGetActivePatchesRequest,
+  GrpcGetActivePatchesResponse,
+  GrpcHarnessPatchEntry,
 } from "@tessera/shared";
 import type { SessionContext } from "../../session/session-context.js";
 import type { LLMMessage } from "../../llm/provider.interface.js";
@@ -210,6 +215,69 @@ export class MemoryGrpcClient {
             return;
           }
           resolve(res.lessons ?? []);
+        }
+      );
+    });
+  }
+
+  /**
+   * Fire-and-forget — store a harness patch in the memory-store.
+   * Never throws; failures logged to stderr.
+   */
+  storeHarnessPatch(patch: {
+    id: string;
+    patch_type: string;
+    target: string;
+    proposed_change: string;
+    confidence: number;
+    recommendation: string;
+    source_patterns: string;
+    applied: boolean;
+    applied_at: number;
+    generated_at: number;
+  }): void {
+    const req: GrpcStoreHarnessPatchRequest = {
+      id: patch.id,
+      patch_type: patch.patch_type,
+      target: patch.target,
+      proposed_change: patch.proposed_change,
+      confidence: patch.confidence,
+      recommendation: patch.recommendation,
+      source_patterns: patch.source_patterns,
+      applied: patch.applied,
+      applied_at: patch.applied_at,
+      generated_at: patch.generated_at,
+    };
+    this.client.StoreHarnessPatch(req, (err: grpc.ServiceError | null, _res: GrpcStoreHarnessPatchResponse) => {
+      if (err) {
+        process.stderr.write(`[memory-client] storeHarnessPatch failed: ${err.message}\n`);
+      }
+    });
+  }
+
+  /**
+   * Retrieve harness patches that haven't been applied yet.
+   * Resolves [] on timeout or any error — never rejects.
+   */
+  getActivePatches(limit = 50): Promise<GrpcHarnessPatchEntry[]> {
+    return new Promise((resolve) => {
+      const req: GrpcGetActivePatchesRequest = { limit };
+
+      const timer = setTimeout(() => {
+        process.stderr.write("[memory-client] getActivePatches timed out\n");
+        resolve([]);
+      }, 2_000);
+
+      this.client.GetActivePatches(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcGetActivePatchesResponse) => {
+          clearTimeout(timer);
+          if (err) {
+            process.stderr.write(`[memory-client] getActivePatches failed: ${err.message}\n`);
+            resolve([]);
+            return;
+          }
+          resolve(res.patches ?? []);
         }
       );
     });

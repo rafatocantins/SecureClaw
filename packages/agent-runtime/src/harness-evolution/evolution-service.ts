@@ -188,9 +188,8 @@ export class HarnessEvolutionService {
   // ── Persistence helpers ────────────────────────────────────────────────
 
   /**
-   * Store a patch in the internal store.
-   * In production, this would be backed by the harness_patches table
-   * in memory-store via gRPC.
+   * Store a patch in the internal store and persist to the memory-store DB
+   * via gRPC when available.
    */
   private storePatch(patch: HarnessPatch, applied: boolean): void {
     const existing = this.patchStore.get(patch.id);
@@ -204,6 +203,25 @@ export class HarnessEvolutionService {
       ...patch,
       applied,
       ...(applied ? { appliedAt: Date.now() } : {}),
+    });
+
+    // Persist to memory-store DB via gRPC
+    this.memoryClient?.storeHarnessPatch({
+      id: patch.id,
+      patch_type: patch.type,
+      target: patch.target,
+      proposed_change: patch.proposedChange,
+      confidence: patch.confidence,
+      recommendation:
+        patch.confidence >= AUTO_APPLY_THRESHOLD
+          ? "apply"
+          : patch.confidence >= REJECT_THRESHOLD
+            ? "review"
+            : "reject",
+      source_patterns: JSON.stringify(patch.sourcePatterns),
+      applied,
+      applied_at: applied ? Date.now() : 0,
+      generated_at: patch.generatedAt.getTime(),
     });
   }
 

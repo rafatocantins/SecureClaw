@@ -31,6 +31,11 @@ import type {
   GrpcListLessonsRequest,
   GrpcListLessonsResponse,
   GrpcStoredLesson,
+  GrpcStoreHarnessPatchRequest,
+  GrpcStoreHarnessPatchResponse,
+  GrpcGetActivePatchesRequest,
+  GrpcGetActivePatchesResponse,
+  GrpcHarnessPatchEntry,
 } from "@tessera/shared";
 import type { LessonCategory } from "../memory.service.js";
 
@@ -279,6 +284,57 @@ export function makeMemoryImpl(memorySvc: MemoryService) {
       } catch (err) {
         process.stderr.write(`[memory-grpc] listLessons error: ${String(err)}\n`);
         callback(null, { lessons: [] });
+      }
+    },
+
+    StoreHarnessPatch(
+      call: UnaryCall<GrpcStoreHarnessPatchRequest, GrpcStoreHarnessPatchResponse>,
+      callback: Callback<GrpcStoreHarnessPatchResponse>
+    ): void {
+      try {
+        const req = call.request;
+        memorySvc.storeHarnessPatch({
+          id: req.id,
+          patch_type: req.patch_type,
+          target: req.target,
+          proposed_change: req.proposed_change,
+          confidence: req.confidence,
+          recommendation: req.recommendation,
+          source_patterns: req.source_patterns,
+          applied: req.applied ? 1 : 0,
+          applied_at: req.applied_at || null,
+          generated_at: req.generated_at,
+        });
+        callback(null, { success: true });
+      } catch (err) {
+        process.stderr.write(`[memory-grpc] storeHarnessPatch error: ${String(err)}\n`);
+        callback(null, { success: false });
+      }
+    },
+
+    GetActivePatches(
+      call: UnaryCall<GrpcGetActivePatchesRequest, GrpcGetActivePatchesResponse>,
+      callback: Callback<GrpcGetActivePatchesResponse>
+    ): void {
+      try {
+        const { limit } = call.request;
+        const rows = memorySvc.getActivePatches(limit || 50);
+        const patches: GrpcHarnessPatchEntry[] = rows.map((r) => ({
+          id: r.id,
+          patch_type: r.patch_type,
+          target: r.target,
+          proposed_change: r.proposed_change,
+          confidence: r.confidence,
+          recommendation: r.recommendation,
+          source_patterns: r.source_patterns,
+          applied: r.applied !== 0,
+          applied_at: r.applied_at ?? 0,
+          generated_at: r.generated_at,
+        }));
+        callback(null, { patches });
+      } catch (err) {
+        process.stderr.write(`[memory-grpc] getActivePatches error: ${String(err)}\n`);
+        callback(null, { patches: [] });
       }
     },
   };
