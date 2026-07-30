@@ -127,5 +127,24 @@ export function initSchema(db: DatabaseSync): void {
     -- One embedding per source row; overwrite on model change
     CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_source
       ON embeddings(source_table, source_id);
+
+    -- =========================================================================
+    -- harness_patches (HarnessEvolutionService persistence)
+    -- =========================================================================
+    CREATE TABLE IF NOT EXISTS harness_patches (
+      id              TEXT PRIMARY KEY,
+      patch_type      TEXT NOT NULL CHECK(patch_type IN ('prompt_update','tool_rule','system_instruction')),
+      target          TEXT NOT NULL,
+      proposed_change TEXT NOT NULL,
+      confidence      REAL NOT NULL DEFAULT 0.0,
+      recommendation  TEXT NOT NULL DEFAULT 'review',
+      source_patterns TEXT NOT NULL DEFAULT '[]',  -- JSON array
+      applied         INTEGER NOT NULL DEFAULT 0,
+      applied_at      INTEGER,
+      generated_at    INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE INDEX IF NOT EXISTS idx_harness_patches_applied
+      ON harness_patches(applied, confidence DESC);
   `);
 }

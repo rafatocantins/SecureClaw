@@ -28,6 +28,7 @@ export type { TaskComplexity, OrchestratorConfig, Task, TaskResult } from "./orc
 // ── Harness Evolution ──────────────────────────────────────────────────────
 export { SessionAnalyzer } from "./harness-evolution/session-analyzer.js";
 export { HarnessPatchGenerator } from "./harness-evolution/patch-generator.js";
+export { HarnessEvolutionService } from "./harness-evolution/evolution-service.js";
 export {
   detectToolFailures,
   detectLoops,
@@ -45,6 +46,7 @@ export type {
   AuditEvent,
 } from "./harness-evolution/types.js";
 export type { PatternSummary } from "./harness-evolution/session-analyzer.js";
+export type { EvolutionResult, ApplyResult } from "./harness-evolution/evolution-service.js";
 
 // ── Verifier Gate ──────────────────────────────────────────────────────────
 export { OutputVerifier } from "./verifier/output-verifier.js";
