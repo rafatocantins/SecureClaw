@@ -256,15 +256,15 @@ export class MemoryGrpcClient {
   }
 
   /**
-   * Retrieve harness patches that haven't been applied yet.
+   * Retrieve applied harness patches (applied & confidence > 0.7) for prompt injection.
    * Resolves [] on timeout or any error — never rejects.
    */
-  getActivePatches(limit = 50): Promise<GrpcHarnessPatchEntry[]> {
+  getActivePatches(userId: string, limit = 5): Promise<GrpcHarnessPatchEntry[]> {
     return new Promise((resolve) => {
-      const req: GrpcGetActivePatchesRequest = { limit };
+      const req: GrpcGetActivePatchesRequest = { user_id: userId, limit };
 
       const timer = setTimeout(() => {
-        process.stderr.write("[memory-client] getActivePatches timed out\n");
+        process.stderr.write(`[memory-client] getActivePatches timed out for user ${userId}\n`);
         resolve([]);
       }, 2_000);
 

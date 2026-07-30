@@ -682,11 +682,14 @@ export interface GrpcHarnessPatchEntry {
 }
 
 export interface GrpcGetActivePatchesRequest {
+  user_id: string;
   limit: number;
 }
 
 export interface GrpcGetActivePatchesResponse {
   patches: GrpcHarnessPatchEntry[];
+}
+
 }
 
 // ── Control UI — agent runtime extensions ──────────────────────────────────
