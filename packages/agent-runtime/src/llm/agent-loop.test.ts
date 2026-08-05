@@ -18,6 +18,8 @@ import type { SanitizerService } from "@tessera/input-sanitizer";
 import type { VaultGrpcClient } from "../grpc/clients/vault.client.js";
 import type { AuditGrpcClient } from "../grpc/clients/audit.client.js";
 import type { SandboxGrpcClient } from "../grpc/clients/sandbox.client.js";
+import type { MemoryGrpcClient } from "../grpc/clients/memory.client.js";
+import type { GrpcHarnessPatchEntry } from "@tessera/shared";
 import type { AlertingService } from "@tessera/alerting";
 import type { SessionContext } from "../session/session-context.js";
 
@@ -552,5 +554,169 @@ describe("AgentLoop — onSessionEnd hook", () => {
     const complete = chunks.find((c: unknown) => (c as { complete?: unknown }).complete);
     expect(complete).toBeDefined();
     // Should not throw
+  });
+});
+
+// ── Group I — Harness patch injection ───────────────────────────────────
+
+function makeMemoryWithPatches(patches: GrpcHarnessPatchEntry[]): MemoryGrpcClient {
+  return {
+    getActivePatches: vi.fn().mockResolvedValue(patches),
+    getRecentMessages: vi.fn().mockResolvedValue([]),
+    getRelevantLessons: vi.fn().mockResolvedValue([]),
+    storeSession: vi.fn(),
+    appendMessage: vi.fn(),
+    finalizeSession: vi.fn(),
+    close: vi.fn(),
+    storeLessons: vi.fn(),
+    listLessons: vi.fn(),
+    deleteUserData: vi.fn(),
+  } as unknown as MemoryGrpcClient;
+}
+
+function makeMemoryOffline(): MemoryGrpcClient {
+  return {
+    getActivePatches: vi.fn().mockRejectedValue(new Error("connection refused")),
+    getRecentMessages: vi.fn().mockResolvedValue([]),
+    getRelevantLessons: vi.fn().mockResolvedValue([]),
+    storeSession: vi.fn(),
+    appendMessage: vi.fn(),
+    finalizeSession: vi.fn(),
+    close: vi.fn(),
+    storeLessons: vi.fn(),
+    listLessons: vi.fn(),
+    deleteUserData: vi.fn(),
+  } as unknown as MemoryGrpcClient;
+}
+
+describe("AgentLoop — harness patch injection", () => {
+  let policy: ToolPolicyEngine;
+  let gate: ApprovalGate;
+
+  beforeEach(() => {
+    policy = new ToolPolicyEngine({ human_approval_required_for: [] }, FILE_READ_POLICY);
+    gate = new ApprovalGate();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("I1: memoryClient.getActivePatches is called during run()", async () => {
+    const provider = mockProvider([
+      [
+        { type: "text", text: "Hello!" },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } },
+      ],
+    ]);
+
+    const samplePatches: GrpcHarnessPatchEntry[] = [
+      {
+        id: "p1",
+        patch_type: "prompt_update",
+        target: "system_prompt",
+        proposed_change: "Always validate inputs",
+        confidence: 0.85,
+        recommendation: "apply",
+        source_patterns: "[]",
+        applied: true,
+        applied_at: Date.now(),
+        generated_at: Date.now(),
+      },
+    ];
+
+    const memory = makeMemoryWithPatches(samplePatches);
+    const getPatchesSpy = vi.spyOn(memory, "getActivePatches");
+
+    const ctx = makeCtx({ provider, messages: [] });
+    const loop = new AgentLoop(
+      makeSanitizer(), policy, gate, makeVault(), makeAudit(), makeSandbox(),
+      undefined, memory
+    );
+
+    await collectChunks(loop.run(ctx, "hi"));
+
+    expect(getPatchesSpy).toHaveBeenCalledWith(ctx.user_id);
+  });
+
+  it("I2: memoryClient offline — behavior identical (graceful degradation)", async () => {
+    const provider = mockProvider([
+      [
+        { type: "text", text: "OK" },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } },
+      ],
+    ]);
+
+    const memory = makeMemoryOffline();
+    const getPatchesSpy = vi.spyOn(memory, "getActivePatches");
+
+    const ctx = makeCtx({ provider, messages: [] });
+    const loop = new AgentLoop(
+      makeSanitizer(), policy, gate, makeVault(), makeAudit(), makeSandbox(),
+      undefined, memory
+    );
+
+    // Should NOT throw — graceful degradation
+    const chunks = await collectChunks(loop.run(ctx, "offline test"));
+
+    expect(getPatchesSpy).toHaveBeenCalledWith(ctx.user_id);
+
+    // Session still completes normally
+    const complete = chunks.find((c: unknown) => (c as { complete?: unknown }).complete);
+    expect(complete).toBeDefined();
+  });
+
+  it("I3: patches are truncated to 500 chars and limited to 5", async () => {
+    const longChange = "A".repeat(600);
+
+    // Create 7 patches — only 5 should be used
+    const patches: GrpcHarnessPatchEntry[] = Array.from({ length: 7 }, (_, i) => ({
+      id: `p${i}`,
+      patch_type: "prompt_update",
+      target: "system_prompt",
+      proposed_change: i === 0 ? longChange : `Patch ${i}`,
+      confidence: 0.8,
+      recommendation: "apply",
+      source_patterns: "[]",
+      applied: true,
+      applied_at: Date.now(),
+      generated_at: Date.now(),
+    }));
+
+    const memory = makeMemoryWithPatches(patches);
+    const getPatchesSpy = vi.spyOn(memory, "getActivePatches");
+
+    const provider = mockProvider([
+      [
+        { type: "text", text: "Done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 5, output_tokens: 2 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider, messages: [] });
+    const loop = new AgentLoop(
+      makeSanitizer(), policy, gate, makeVault(), makeAudit(), makeSandbox(),
+      undefined, memory
+    );
+
+    await collectChunks(loop.run(ctx, "test truncation"));
+
+    expect(getPatchesSpy).toHaveBeenCalled();
+
+    // Verify the ctx has the activePatches set correctly
+    // (we can't directly inspect the system prompt from the loop, but we
+    // trust the truncation/slice logic is exercised)
+    expect(ctx.activePatches).toBeDefined();
+    if (ctx.activePatches) {
+      // Max 5 patches
+      expect(ctx.activePatches.length).toBeLessThanOrEqual(5);
+
+      // Long patch should be truncated
+      const truncatedPatch = ctx.activePatches.find((p) => p.id === "p0");
+      if (truncatedPatch) {
+        expect(truncatedPatch.proposedChange.length).toBeLessThanOrEqual(503); // 500 + "..."
+        expect(truncatedPatch.proposedChange).toContain("...");
+      }
+    }
   });
 });

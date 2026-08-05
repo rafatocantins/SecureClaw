@@ -29,7 +29,7 @@ service MemoryService {
   rpc ListLessons(ListLessonsRequest) returns (ListLessonsResponse);
   // Store a harness patch for the self-evolution pipeline.
   rpc StoreHarnessPatch(StoreHarnessPatchRequest) returns (StoreHarnessPatchResponse);
-  // Retrieve harness patches that haven't been applied yet (for review/apply).
+  // Get applied harness patches with confidence > 0.7 for prompt injection.
   rpc GetActivePatches(GetActivePatchesRequest) returns (GetActivePatchesResponse);
 }
 
@@ -211,7 +211,8 @@ message HarnessPatchEntry {
 }
 
 message GetActivePatchesRequest {
-  int32 limit = 1;  // default 50; 0 = all
+  string user_id = 1;
+  int32  limit   = 2;  // default 50; 0 = all
 }
 
 message GetActivePatchesResponse {

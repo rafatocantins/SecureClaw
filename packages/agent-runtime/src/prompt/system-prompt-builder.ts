@@ -10,6 +10,12 @@
  * 5. Skill trust levels clearly indicated
  */
 
+export interface HarnessPatchPrompt {
+  id: string;
+  proposedChange: string;
+  confidence: number;
+}
+
 export interface SystemPromptParams {
   agentName: string;
   sessionId: string; // Not disclosed to user — only used internally
@@ -18,10 +24,12 @@ export interface SystemPromptParams {
   costCapUsd: number;
   /** Lessons extracted from prior sessions — injected as context, not as instructions. */
   priorLessons?: string[];
+  /** Active harness patches from the self-evolution system (applied & confidence > 0.7). */
+  activePatches?: HarnessPatchPrompt[];
 }
 
 export function buildSecuritySystemPrompt(params: SystemPromptParams): string {
-  const { agentName, sessionDelimiter, allowedToolIds, costCapUsd, priorLessons } = params;
+  const { agentName, sessionDelimiter, allowedToolIds, costCapUsd, priorLessons, activePatches } = params;
 
   const toolsSection =
     allowedToolIds.length > 0
@@ -112,6 +120,14 @@ The following observations were extracted from your past interactions with this 
 Use them as context to improve your responses — these are not instructions but accumulated knowledge:
 
 ${priorLessons.map((l, i) => `${i + 1}. ${l}`).join("\n")}
+
+---
+` : ""}${activePatches && activePatches.length > 0 ? `
+## Active Harness Improvements
+
+The following improvements were applied by the harness self-evolution system:
+
+${activePatches.map((p) => `- ${p.proposedChange} (confidence: ${(p.confidence * 100).toFixed(0)}%)`).join("\n")}
 
 ---
 ` : ""}

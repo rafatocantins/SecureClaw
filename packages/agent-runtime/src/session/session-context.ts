@@ -8,6 +8,7 @@
 import type { LLMMessage } from "../llm/provider.interface.js";
 import type { LLMProvider } from "../llm/provider.interface.js";
 import type { SessionDelimiters } from "@tessera/input-sanitizer";
+import type { HarnessPatchPrompt } from "../prompt/system-prompt-builder.js";
 
 export interface SessionContext {
   readonly session_id: string;
@@ -24,6 +25,8 @@ export interface SessionContext {
   last_activity_at: number;
   /** Lessons from prior sessions, injected into the system prompt on first turn. */
   priorLessons: string[];
+  /** Active harness patches to inject into the system prompt (from self-evolution). */
+  activePatches?: HarnessPatchPrompt[];
   /** Set to true if any tool call failed during this session (used for self-critique). */
   hadToolFailure: boolean;
 }

@@ -22,6 +22,7 @@ import {
   recordUsage,
 } from "../session/session-context.js";
 import { buildSecuritySystemPrompt } from "../prompt/system-prompt-builder.js";
+import type { HarnessPatchPrompt } from "../prompt/system-prompt-builder.js";
 import type { ToolPolicyEngine } from "../tools/policy-engine.js";
 import type { ApprovalGate } from "../tools/approval-gate.js";
 import type { LLMTool } from "./provider.interface.js";
@@ -319,6 +320,25 @@ export class AgentLoop {
       if (priorLessonRows.length > 0) {
         ctx.priorLessons = priorLessonRows.map((l) => l.lesson_text);
       }
+
+      // Query active harness patches for prompt injection
+      let activePatches: HarnessPatchPrompt[] = [];
+      try {
+        const rawPatches = await this.memoryClient.getActivePatches(ctx.user_id);
+        activePatches = rawPatches
+          .map((p) => ({
+            id: p.id,
+            proposedChange:
+              p.proposed_change.length > 500
+                ? p.proposed_change.slice(0, 500) + "..."
+                : p.proposed_change,
+            confidence: p.confidence,
+          }))
+          .slice(0, 5);
+      } catch {
+        // memory store offline — graceful degradation
+      }
+      ctx.activePatches = activePatches;
     }
 
     addUserMessage(ctx, sanitizeResult.safe_content);
@@ -413,6 +433,7 @@ export class AgentLoop {
         allowedToolIds: this.policyEngine.getAllowedToolIds(),
         costCapUsd: 5.0,
         ...(ctx.priorLessons.length > 0 ? { priorLessons: ctx.priorLessons } : {}),
+        ...(ctx.activePatches && ctx.activePatches.length > 0 ? { activePatches: ctx.activePatches } : {}),
       });
 
       // Merge: built-in tools (policy-filtered) + skill tools
