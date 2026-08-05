@@ -690,7 +690,6 @@ export interface GrpcGetActivePatchesResponse {
   patches: GrpcHarnessPatchEntry[];
 }
 
-}
 
 // ── Control UI — agent runtime extensions ──────────────────────────────────
 
