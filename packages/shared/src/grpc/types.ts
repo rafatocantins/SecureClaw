@@ -649,6 +649,46 @@ export interface GrpcListLessonsResponse {
   lessons: GrpcStoredLesson[];
 }
 
+// ── Harness Patches ──────────────────────────────────────────────────────
+
+export interface GrpcStoreHarnessPatchRequest {
+  id: string;
+  patch_type: string;
+  target: string;
+  proposed_change: string;
+  confidence: number;
+  recommendation: string;
+  source_patterns: string;
+  applied: boolean;
+  applied_at: number;
+  generated_at: number;
+}
+
+export interface GrpcStoreHarnessPatchResponse {
+  success: boolean;
+}
+
+export interface GrpcHarnessPatchEntry {
+  id: string;
+  patch_type: string;
+  target: string;
+  proposed_change: string;
+  confidence: number;
+  recommendation: string;
+  source_patterns: string;
+  applied: boolean;
+  applied_at: number;
+  generated_at: number;
+}
+
+export interface GrpcGetActivePatchesRequest {
+  limit: number;
+}
+
+export interface GrpcGetActivePatchesResponse {
+  patches: GrpcHarnessPatchEntry[];
+}
+
 // ── Control UI — agent runtime extensions ──────────────────────────────────
 
 export interface GrpcListSessionsRequest {}
