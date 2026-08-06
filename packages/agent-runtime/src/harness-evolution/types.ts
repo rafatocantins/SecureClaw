@@ -65,3 +65,20 @@ export interface AuditEvent {
   error?: string;
   details?: Record<string, unknown>;
 }
+
+/** Result of patch validation — rejected patches include a reason. */
+export interface PatchValidationResult {
+  valid: boolean;
+  reason?: string;
+  /** Which invariant was violated (if any). */
+  violatedInvariant?: string;
+}
+
+/** A pending patch stored for human review (not auto-applied). */
+export interface PendingPatch {
+  id: string;
+  patch: HarnessPatch;
+  storedAt: Date;
+  status: "pending_review";
+  validationResult: PatchValidationResult;
+}

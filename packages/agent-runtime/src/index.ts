@@ -45,6 +45,8 @@ export type {
   AuditService,
   AuditSession,
   AuditEvent,
+  PatchValidationResult,
+  PendingPatch,
 } from "./harness-evolution/types.js";
 export type { PatternSummary } from "./harness-evolution/session-analyzer.js";
 export type { EvolutionResult, ApplyResult } from "./harness-evolution/evolution-service.js";

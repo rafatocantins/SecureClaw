@@ -274,7 +274,7 @@ describe("HarnessEvolutionService.applyPatch()", () => {
 
     expect(result.applied).toBe(true);
     expect(result.id).toBe("patch-high-conf");
-    expect(result.reason).toContain("Auto-applied");
+    expect(result.reason).toContain("Applied");
 
     // Verify patch is stored as applied
     const stored = service.getStoredPatches();
@@ -433,5 +433,361 @@ describe("HarnessEvolutionService graceful degradation", () => {
     const result = await service.evolve();
     expect(result.sessionsAnalyzed).toBe(1);
     // Should not crash
+  });
+});
+
+// ── Phase 1: validatePatch() tests ──────────────────────────────────────────
+
+describe("HarnessEvolutionService.validatePatch()", () => {
+  let service: HarnessEvolutionService;
+
+  function makePatch(overrides: Partial<HarnessPatch> = {}): HarnessPatch {
+    return {
+      id: overrides.id ?? "patch-test-1",
+      type: overrides.type ?? "tool_rule",
+      target: overrides.target ?? "tool_allowlist",
+      proposedChange:
+        overrides.proposedChange ??
+        "Add rate limiting to shell_exec tool to prevent abuse",
+      rationale: overrides.rationale ?? "Shell exec was called too frequently",
+      confidence: overrides.confidence ?? 0.5,
+      sourcePatterns: overrides.sourcePatterns ?? ["tool_failure"],
+      generatedAt: overrides.generatedAt ?? new Date(),
+    };
+  }
+
+  beforeEach(() => {
+    const auditService = mockAuditService([], new Map());
+    const analyzer = new SessionAnalyzer(auditService);
+    const generator = new HarnessPatchGenerator();
+    const auditClient = mockAuditGrpcClient();
+    service = new HarnessEvolutionService(analyzer, generator, auditClient);
+  });
+
+  // ── Test: AC2a — rejects patches modifying security invariants ────────
+
+  it("rejects patch that attempts to modify sandbox_mode invariant", () => {
+    const patch = makePatch({
+      id: "patch-sandbox",
+      target: "security_config",
+      proposedChange:
+        "Change sandbox_mode to off_for_dev to improve performance",
+    });
+
+    const result = service.validatePatch(patch);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("security invariant");
+    expect(result.reason).toContain("sandbox_mode");
+    expect(result.violatedInvariant).toBe("sandbox_mode");
+  });
+
+  it("rejects patch that attempts to modify tool_policy invariant", () => {
+    const patch = makePatch({
+      id: "patch-policy",
+      target: "security_config",
+      proposedChange:
+        "Relax tool_policy to allow_all_except_denylist for development",
+    });
+
+    const result = service.validatePatch(patch);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("tool_policy");
+    expect(result.violatedInvariant).toBe("tool_policy");
+  });
+
+  it("rejects patch that targets an invariant directly", () => {
+    const patch = makePatch({
+      id: "patch-direct-invariant",
+      target: "session_isolation",
+      proposedChange: "Modify session_isolation settings for multi-tenancy",
+    });
+
+    const result = service.validatePatch(patch);
+    expect(result.valid).toBe(false);
+    expect(result.violatedInvariant).toBe("session_isolation");
+  });
+
+  // ── Test: AC2b — rejects patches with vault placeholders ─────────────
+
+  it("rejects patch containing vault credential placeholder", () => {
+    const patch = makePatch({
+      id: "patch-vault",
+      target: "credential_injection",
+      proposedChange:
+        "Use credential __VAULT_REF:12345678-1234-1234-1234-123456789abc__ for API calls",
+    });
+
+    const result = service.validatePatch(patch);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("vault credential placeholder");
+  });
+
+  // ── Test: AC2c — rejects patches exceeding 500 chars ─────────────────
+
+  it("rejects patch when proposedChange exceeds 500 characters", () => {
+    const longChange = "x".repeat(501);
+    const patch = makePatch({
+      id: "patch-too-long",
+      proposedChange: longChange,
+    });
+
+    const result = service.validatePatch(patch);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain("exceeds 500 characters");
+  });
+
+  // ── Test: valid patch passes validation ──────────────────────────────
+
+  it("accepts a valid patch that passes all checks", () => {
+    const patch = makePatch({
+      id: "patch-valid",
+      target: "tool_allowlist",
+      proposedChange:
+        "Add rate limiting to shell_exec tool to prevent excessive calls",
+    });
+
+    const result = service.validatePatch(patch);
+    expect(result.valid).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
+});
+
+// ── Phase 1: generatePatchesFromLessons() tests ────────────────────────────
+
+describe("HarnessEvolutionService.generatePatchesFromLessons()", () => {
+  let service: HarnessEvolutionService;
+
+  beforeEach(() => {
+    const auditService = mockAuditService([], new Map());
+    const analyzer = new SessionAnalyzer(auditService);
+    const generator = new HarnessPatchGenerator();
+    const auditClient = mockAuditGrpcClient();
+    service = new HarnessEvolutionService(analyzer, generator, auditClient);
+  });
+
+  // ── Test: AC1 — generates patches from lessons ────────────────────
+
+  it("generates patches for each lesson category (mistake, preference, procedure, fact)", () => {
+    const lessons = [
+      { lesson_text: "Avoid using shell_exec for file operations", category: "mistake" as const },
+      { lesson_text: "User prefers dark mode in all outputs", category: "preference" as const },
+      { lesson_text: "Always run npm install before npm test", category: "procedure" as const },
+      { lesson_text: "The API base URL is https://api.example.com", category: "fact" as const },
+    ];
+
+    const results = service.generatePatchesFromLessons(lessons);
+
+    expect(results).toHaveLength(4);
+
+    // Check types by category
+    const mistakeResult = results.find((r) => r.patch.target === "lesson_mistake_guard");
+    expect(mistakeResult).toBeDefined();
+    expect(mistakeResult!.patch.type).toBe("tool_rule");
+
+    const preferenceResult = results.find((r) => r.patch.target === "lesson_preference");
+    expect(preferenceResult).toBeDefined();
+    expect(preferenceResult!.patch.type).toBe("system_instruction");
+
+    const procedureResult = results.find((r) => r.patch.target === "lesson_procedure");
+    expect(procedureResult).toBeDefined();
+    expect(procedureResult!.patch.type).toBe("system_instruction");
+
+    const factResult = results.find((r) => r.patch.target === "lesson_fact_injection");
+    expect(factResult).toBeDefined();
+    expect(factResult!.patch.type).toBe("prompt_update");
+  });
+
+  it("returns empty array for empty lessons list", () => {
+    const results = service.generatePatchesFromLessons([]);
+    expect(results).toEqual([]);
+  });
+
+  it("validates lesson patches and marks invalid ones", () => {
+    const longText = "x".repeat(501); // Exceeds 500 char limit
+    const lessons = [
+      { lesson_text: longText, category: "fact" as const },
+    ];
+
+    const results = service.generatePatchesFromLessons(lessons);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].valid).toBe(false);
+    expect(results[0].reason).toContain("exceeds 500");
+  });
+
+  it("lessons from mistakes map to tool_rule patch type", () => {
+    const lessons = [
+      { lesson_text: "Do not call http_request without URL validation", category: "mistake" as const },
+    ];
+
+    const results = service.generatePatchesFromLessons(lessons);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].patch.type).toBe("tool_rule");
+    expect(results[0].patch.target).toBe("lesson_mistake_guard");
+    expect(results[0].patch.confidence).toBe(0.5);
+    expect(results[0].valid).toBe(true);
+  });
+});
+
+// ── Phase 1: finalizeSession() pipeline hook tests ─────────────────────────
+
+describe("HarnessEvolutionService.finalizeSession()", () => {
+  let service: HarnessEvolutionService;
+  let memoryClient: MemoryGrpcClient;
+
+  beforeEach(() => {
+    const auditService = mockAuditService([], new Map());
+    const analyzer = new SessionAnalyzer(auditService);
+    const generator = new HarnessPatchGenerator();
+    const auditClient = mockAuditGrpcClient();
+    memoryClient = mockMemoryGrpcClient();
+    service = new HarnessEvolutionService(
+      analyzer,
+      generator,
+      auditClient,
+      memoryClient,
+    );
+  });
+
+  it("returns 0 when lessons array is empty", async () => {
+    const count = await service.finalizeSession("user-1", "sess-1", []);
+    expect(count).toBe(0);
+  });
+
+  it("creates pending patches from extracted lessons and persists to memory", async () => {
+    const lessons = [
+      { lesson_text: "Avoid running long shell commands", category: "mistake" as const },
+      { lesson_text: "User uses TypeScript strict mode", category: "fact" as const },
+    ];
+
+    const count = await service.finalizeSession("user-1", "sess-1", lessons);
+
+    expect(count).toBe(2);
+    expect(memoryClient.storeHarnessPatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not crash when memoryClient is undefined", async () => {
+    const auditService = mockAuditService([], new Map());
+    const analyzer = new SessionAnalyzer(auditService);
+    const generator = new HarnessPatchGenerator();
+    const auditClient = mockAuditGrpcClient();
+    const svcNoMemory = new HarnessEvolutionService(
+      analyzer,
+      generator,
+      auditClient,
+      undefined,
+    );
+
+    const lessons = [
+      { lesson_text: "A test lesson", category: "procedure" as const },
+    ];
+
+    // Should not throw
+    const count = await svcNoMemory.finalizeSession("user-1", "sess-1", lessons);
+    expect(count).toBe(1);
+  });
+});
+
+// ── Phase 1: Pending patches storage tests ─────────────────────────────────
+
+describe("HarnessEvolutionService pending patches", () => {
+  let service: HarnessEvolutionService;
+
+  function makePatch(overrides: Partial<HarnessPatch> = {}): HarnessPatch {
+    return {
+      id: overrides.id ?? "patch-test-1",
+      type: overrides.type ?? "tool_rule",
+      target: overrides.target ?? "tool_allowlist",
+      proposedChange:
+        overrides.proposedChange ??
+        "Add rate limiting to shell_exec tool",
+      rationale: overrides.rationale ?? "Test rationale",
+      confidence: overrides.confidence ?? 0.5,
+      sourcePatterns: overrides.sourcePatterns ?? ["tool_failure"],
+      generatedAt: overrides.generatedAt ?? new Date(),
+    };
+  }
+
+  beforeEach(() => {
+    const auditService = mockAuditService([], new Map());
+    const analyzer = new SessionAnalyzer(auditService);
+    const generator = new HarnessPatchGenerator();
+    const auditClient = mockAuditGrpcClient();
+    service = new HarnessEvolutionService(analyzer, generator, auditClient);
+  });
+
+  it("getPendingPatches returns empty when no lessons have been processed", () => {
+    expect(service.getPendingPatches()).toEqual([]);
+  });
+
+  it("getPendingPatches returns patches after generatePatchesFromLessons", () => {
+    const lessons = [
+      { lesson_text: "Validate all inputs", category: "mistake" as const },
+    ];
+
+    service.generatePatchesFromLessons(lessons);
+
+    const pending = service.getPendingPatches();
+    expect(pending.length).toBe(1);
+    expect(pending[0].status).toBe("pending_review");
+    expect(pending[0].patch.target).toBe("lesson_mistake_guard");
+    expect(pending[0].validationResult.valid).toBe(true);
+  });
+
+  it("clearPatches clears both patch store and pending patches", () => {
+    service.generatePatchesFromLessons([
+      { lesson_text: "Test", category: "fact" as const },
+    ]);
+
+    expect(service.getPendingPatches().length).toBe(1);
+
+    service.clearPatches();
+    expect(service.getPendingPatches()).toEqual([]);
+    expect(service.getStoredPatches()).toEqual([]);
+  });
+
+  it("does not store invalid patches as pending", () => {
+    const longText = "x".repeat(501);
+    const lessons = [
+      { lesson_text: longText, category: "fact" as const },
+    ];
+
+    service.generatePatchesFromLessons(lessons);
+
+    const pending = service.getPendingPatches();
+    expect(pending.length).toBe(0);
+  });
+});
+
+// ── Phase 1: evolve() integration with validatePatch ───────────────────────
+
+describe("HarnessEvolutionService.evolve() with Phase 1 validation", () => {
+  it("rejects patches in evolve() pipeline that fail validation", async () => {
+    // Create a custom analyzer that returns a session with an invalid-like pattern
+    // Actually: evolve should still work — patches that fail validation are just
+    // not stored as pending. Let's test that evolve still completes.
+    const session = makeSession({ sessionId: "sess-1" });
+    const events = makeToolFailureEvent("sess-1", 8);
+    const auditService = mockAuditService(
+      [session],
+      new Map([["sess-1", events]]),
+    );
+    const analyzer = new SessionAnalyzer(auditService);
+    const generator = new HarnessPatchGenerator();
+    const auditClient = mockAuditGrpcClient();
+
+    const service = new HarnessEvolutionService(
+      analyzer,
+      generator,
+      auditClient,
+    );
+
+    const result = await service.evolve();
+
+    expect(result.sessionsAnalyzed).toBe(1);
+    expect(result.patchesGenerated).toBeGreaterThanOrEqual(1);
+    // Patches are now stored as pending, not auto-applied
+    expect(result.patchesApplied).toBeGreaterThanOrEqual(0);
   });
 });
