@@ -40,7 +40,21 @@ type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type StreamCall<Req, Res> = grpc.ServerWritableStream<Req, Res>;
 type Callback<Res> = grpc.sendUnaryData<Res>;
 
-export function makeAuditImpl(auditSvc: AuditService) {
+export function makeAuditImpl(auditSvc: AuditService): {
+  LogEvent(call: UnaryCall<GrpcLogEventRequest, GrpcLogEventResponse>, callback: Callback<GrpcLogEventResponse>): void;
+  QueryEvents(call: StreamCall<GrpcQueryEventsRequest, GrpcAuditEvent>): void;
+  GetAlerts(call: UnaryCall<GrpcGetAlertsRequest, GrpcGetAlertsResponse>, callback: Callback<GrpcGetAlertsResponse>): void;
+  AcknowledgeAlert(call: UnaryCall<GrpcAcknowledgeAlertRequest, GrpcAcknowledgeAlertResponse>, callback: Callback<GrpcAcknowledgeAlertResponse>): void;
+  GetCostSummary(call: UnaryCall<GrpcGetCostSummaryRequest, GrpcGetCostSummaryResponse>, callback: Callback<GrpcGetCostSummaryResponse>): void;
+  RecordCost(call: UnaryCall<GrpcRecordCostRequest, GrpcRecordCostResponse>, callback: Callback<GrpcRecordCostResponse>): void;
+  GetComplianceReport(call: UnaryCall<GrpcGetComplianceReportRequest, GrpcComplianceReportResponse>, callback: Callback<GrpcComplianceReportResponse>): void;
+  GetTeamCostSummary(call: UnaryCall<GrpcGetTeamCostSummaryRequest, GrpcGetTeamCostSummaryResponse>, callback: Callback<GrpcGetTeamCostSummaryResponse>): void;
+  GetTeamQuota(call: UnaryCall<GrpcGetTeamQuotaRequest, GrpcGetTeamQuotaResponse>, callback: Callback<GrpcGetTeamQuotaResponse>): void;
+  SetTeamQuota(call: UnaryCall<GrpcSetTeamQuotaRequest, GrpcSetTeamQuotaResponse>, callback: Callback<GrpcSetTeamQuotaResponse>): void;
+  CheckQuotaExceeded(call: UnaryCall<GrpcCheckQuotaExceededRequest, GrpcCheckQuotaExceededResponse>, callback: Callback<GrpcCheckQuotaExceededResponse>): void;
+  DumpState(call: UnaryCall<GrpcDumpStateRequest, GrpcDumpStateResponse>, callback: Callback<GrpcDumpStateResponse>): void;
+  RestoreState(call: UnaryCall<GrpcRestoreStateRequest, GrpcRestoreStateResponse>, callback: Callback<GrpcRestoreStateResponse>): void;
+} {
   return {
     LogEvent(
       call: UnaryCall<GrpcLogEventRequest, GrpcLogEventResponse>,
@@ -50,7 +64,7 @@ export function makeAuditImpl(auditSvc: AuditService) {
         const req = call.request;
         const logParams: import("../audit.service.js").LogEventParams = {
           event_type: req.event_type,
-          payload: (() => {
+          payload: ((): Record<string, unknown> => {
             try { return JSON.parse(req.payload_json) as Record<string, unknown>; }
             catch { return { raw: req.payload_json }; }
           })(),
