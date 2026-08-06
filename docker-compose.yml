@@ -234,9 +234,9 @@ services:
     healthcheck:
       test: ["CMD", "node", "-e", "const net=require('net');const c=net.connect(19004,'127.0.0.1',()=>{c.destroy();process.exit(0)});c.on('error',()=>process.exit(1));"]
       interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
 
   # ── Telegram Channel ────────────────────────────────────────────────────────
   # Start with: docker compose --profile channels up -d
