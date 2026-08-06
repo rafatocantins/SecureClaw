@@ -5,8 +5,7 @@
  * Alert rules are evaluated after every write.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import { nowUtcMs } from "@tessera/shared";
