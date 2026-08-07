@@ -17,7 +17,7 @@ import type {
 type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type Callback<Res> = grpc.sendUnaryData<Res>;
 
-export function makeSandboxImpl(sandboxSvc: SandboxService) {
+export function makeSandboxImpl(sandboxSvc: SandboxService): grpc.UntypedServiceImplementation {
   return {
     CheckRuntime(
       _call: UnaryCall<GrpcCheckRuntimeRequest, GrpcCheckRuntimeResponse>,

@@ -80,7 +80,7 @@ export class ContainerManager {
       try {
         const result = await Promise.race([waitPromise, timeoutPromise]) as { StatusCode: number };
         exitCode = result.StatusCode;
-      } catch (_err) {
+      } catch {
         if (timedOut) {
           // Kill container on timeout
           try {
