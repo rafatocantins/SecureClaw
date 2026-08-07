@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+
 import { gzipSync, gunzipSync } from "node:zlib";
 import * as tar from "tar-stream";
 

@@ -39,7 +39,7 @@ import { dumpSkillsState, restoreSkillsState } from "../backup.js";
 type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type Callback<Res> = grpc.sendUnaryData<Res>;
 
-export function makeSkillsImpl(registry: SkillRegistry, sandbox: SandboxGrpcClient, marketplace?: MarketplaceRegistry) {
+export function makeSkillsImpl(registry: SkillRegistry, sandbox: SandboxGrpcClient, marketplace?: MarketplaceRegistry): grpc.UntypedServiceImplementation {
   return {
     InstallSkill(
       call: UnaryCall<GrpcInstallSkillRequest, GrpcInstallSkillResponse>,
