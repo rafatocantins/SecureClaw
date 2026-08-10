@@ -5,7 +5,8 @@
  * ProviderConfig interface instead of reaching into process.env directly.
  */
 import { describe, it, expect, vi } from "vitest";
-import { makeAgentImpl, type ProviderConfig } from "../agent.impl.js";
+import { makeAgentImpl } from "../agent.impl.js";
+import type { AgentRuntimeConfig } from "../../config.js";
 import type { SessionManager } from "../../session/session-manager.js";
 import type { AgentLoop } from "../../llm/agent-loop.js";
 import type { LLMProvider } from "../../llm/provider.interface.js";
@@ -14,11 +15,14 @@ import type * as grpc from "@grpc/grpc-js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function makeProviderConfig(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
+function makeConfig(overrides: Partial<AgentRuntimeConfig> = {}): AgentRuntimeConfig {
   return {
-    getApiKey: vi.fn().mockReturnValue(undefined),
-    getModel: vi.fn().mockReturnValue(undefined),
-    getBaseUrl: vi.fn().mockReturnValue(undefined),
+    agentRuntimeAddr: "0.0.0.0:19001",
+    webhookUrl: "",
+    webhookSecret: "",
+    providerApiKeys: {},
+    providerModels: {},
+    providerBaseUrls: {},
     ...overrides,
   };
 }
@@ -57,15 +61,15 @@ type CreateSessionCallback = grpc.sendUnaryData<GrpcCreateSessionResponse>;
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("makeAgentImpl — ProviderConfig injection", () => {
-  it("makeAgentImpl: calls providerConfig.getApiKey with req.provider for anthropic", () => {
-    const providerConfig = makeProviderConfig({
-      getApiKey: vi.fn().mockReturnValue("sk-ant-test"),
-      getModel: vi.fn().mockReturnValue("claude-sonnet-4-20250514"),
+  it("makeAgentImpl: uses providerApiKeys and providerModels from config for anthropic", () => {
+    const config = makeConfig({
+      providerApiKeys: { anthropic: "sk-ant-test" },
+      providerModels: { anthropic: "claude-sonnet-4-20250514" },
     });
     const sessionManager = makeSessionManager();
     const agentLoop = makeAgentLoop();
 
-    const impl = makeAgentImpl(sessionManager, agentLoop, providerConfig);
+    const impl = makeAgentImpl(sessionManager, agentLoop, config);
 
     const callback = vi.fn() as unknown as CreateSessionCallback;
     const call = {
@@ -74,22 +78,20 @@ describe("makeAgentImpl — ProviderConfig injection", () => {
 
     impl.CreateSession(call, callback);
 
-    expect(providerConfig.getApiKey).toHaveBeenCalledWith("anthropic");
-    expect(providerConfig.getModel).toHaveBeenCalledWith("anthropic");
     expect(callback).toHaveBeenCalled();
     const resp = callback.mock.calls[0]?.[1] as GrpcCreateSessionResponse | undefined;
     expect(resp?.success).toBe(true);
   });
 
-  it("makeAgentImpl: calls providerConfig.getApiKey with req.provider for openai", () => {
-    const providerConfig = makeProviderConfig({
-      getApiKey: vi.fn().mockReturnValue("***"),
-      getModel: vi.fn().mockReturnValue("gpt-4o"),
+  it("makeAgentImpl: uses providerApiKeys and providerModels from config for openai", () => {
+    const config = makeConfig({
+      providerApiKeys: { openai: "***" },
+      providerModels: { openai: "gpt-4o" },
     });
     const sessionManager = makeSessionManager();
     const agentLoop = makeAgentLoop();
 
-    const impl = makeAgentImpl(sessionManager, agentLoop, providerConfig);
+    const impl = makeAgentImpl(sessionManager, agentLoop, config);
 
     const callback = vi.fn() as unknown as CreateSessionCallback;
     const call = {
@@ -98,21 +100,19 @@ describe("makeAgentImpl — ProviderConfig injection", () => {
 
     impl.CreateSession(call, callback);
 
-    expect(providerConfig.getApiKey).toHaveBeenCalledWith("openai");
-    expect(providerConfig.getModel).toHaveBeenCalledWith("openai");
     expect(callback).toHaveBeenCalled();
   });
 
-  it("makeAgentImpl: calls providerConfig.getBaseUrl for ollama provider", () => {
-    const providerConfig = makeProviderConfig({
-      getApiKey: vi.fn().mockReturnValue(undefined),
-      getModel: vi.fn().mockReturnValue("llama3.2"),
-      getBaseUrl: vi.fn().mockReturnValue("http://localhost:11434"),
+  it("makeAgentImpl: uses providerBaseUrls from config for ollama provider", () => {
+    const config = makeConfig({
+      providerApiKeys: { ollama: undefined },
+      providerModels: { ollama: "llama3.2" },
+      providerBaseUrls: { ollama: "http://localhost:11434" },
     });
     const sessionManager = makeSessionManager();
     const agentLoop = makeAgentLoop();
 
-    const impl = makeAgentImpl(sessionManager, agentLoop, providerConfig);
+    const impl = makeAgentImpl(sessionManager, agentLoop, config);
 
     const callback = vi.fn() as unknown as CreateSessionCallback;
     const call = {
@@ -121,21 +121,18 @@ describe("makeAgentImpl — ProviderConfig injection", () => {
 
     impl.CreateSession(call, callback);
 
-    expect(providerConfig.getBaseUrl).toHaveBeenCalledWith("ollama");
-    expect(providerConfig.getApiKey).toHaveBeenCalledWith("ollama");
-    expect(providerConfig.getModel).toHaveBeenCalledWith("ollama");
     expect(callback).toHaveBeenCalled();
   });
 
   it("makeAgentImpl: returns error when provider creation fails (missing API key)", () => {
-    const providerConfig = makeProviderConfig({
-      getApiKey: vi.fn().mockReturnValue(undefined),
-      getModel: vi.fn().mockReturnValue(undefined),
+    const config = makeConfig({
+      providerApiKeys: {},
+      providerModels: {},
     });
     const sessionManager = makeSessionManager();
     const agentLoop = makeAgentLoop();
 
-    const impl = makeAgentImpl(sessionManager, agentLoop, providerConfig);
+    const impl = makeAgentImpl(sessionManager, agentLoop, config);
 
     const callback = vi.fn() as unknown as CreateSessionCallback;
     const call = {
