@@ -33,6 +33,13 @@ import type { SandboxGrpcClient } from "../grpc/clients/sandbox.client.js";
 import type { SkillsGrpcClient } from "../grpc/clients/skills.client.js";
 import type { MemoryGrpcClient, StoredMemoryMessage } from "../grpc/clients/memory.client.js";
 import { LessonExtractor } from "../lessons/lesson-extractor.js";
+import {
+  prepareToolCalls,
+  executeToolCallsParallel,
+  type PreparedToolCall,
+  type PendingToolCall,
+  type SkillToolRoute,
+} from "./tool-executor.js";
 
 /**
  * Convert an AlertAuditEvent into LogEventParams for the audit client.
@@ -117,13 +124,7 @@ const TOOL_IMAGES: Record<string, string> = {
 };
 
 /** Maps tool_id → route info for skill-backed tools */
-interface SkillToolRoute {
-  skill_id: string;
-  skill_version: string;
-  requires_approval: boolean;
-  /** Vault credential names the skill needs — auto-injected before execution. */
-  credential_refs: string[];
-}
+// SkillToolRoute is now exported from ./tool-executor.js
 
 export class AgentLoop {
   constructor(
@@ -457,6 +458,18 @@ export class AgentLoop {
       const toolCallsThisTurn: Array<{ call_id: string; tool_id: string; input: Record<string, unknown> }> = [];
       const toolResultsBuffer: Array<{ call_id: string; tool_id: string; result: string }> = [];
 
+      // ── Parallel execution: collect prepared calls + approval promises ──
+      // Policy checks & approval gates are started per-tool during streaming.
+      // Actual sandbox/skills execution happens in parallel after the stream.
+      const preparedCalls: PreparedToolCall[] = [];
+      const approvalPromises: Array<{
+        call_id: string;
+        tool_id: string;
+        promise: Promise<boolean>;
+        approvalSpanStarted: number;
+        approvalSpan: ReturnType<typeof tracer.startSpan>;
+      }> = [];
+
       const genAiSpan = tracer.startSpan("gen_ai.chat", { kind: SpanKind.INTERNAL }, otelCtx);
       genAiSpan.setAttributes({
         "gen_ai.system": ctx.provider.provider_name,
@@ -480,7 +493,10 @@ export class AgentLoop {
           // Track the tool call regardless of outcome so the assistant message is correct
           toolCallsThisTurn.push({ call_id, tool_id, input });
 
-          // Policy check — throws PolicyDeniedError if denied
+          const inputPreview = JSON.stringify(input).slice(0, 300);
+          const skillRoute = skillRoutes.get(tool_id);
+
+          // ── Policy check (sync) ─────────────────────────────────────
           let decision;
           try {
             decision = this.policyEngine.evaluate(tool_id);
@@ -515,9 +531,7 @@ export class AgentLoop {
             throw err;
           }
 
-          const inputPreview = JSON.stringify(input).slice(0, 300);
-
-          // Human approval gate (if required)
+          // ── Approval gate (start per-tool, don't await) ─────────────
           if (decision.requires_approval) {
             ctx.status = "awaiting_approval";
             yield {
@@ -549,49 +563,20 @@ export class AgentLoop {
               input_preview: stripVaultRefs(inputPreview.slice(0, 300)),
             }, (_e: AlertAuditEvent) => this.auditClient.logEvent(toLogEventParams(_e)));
 
-            const approvalStart = Date.now();
+            // Start approval span + promise — don't await yet
             const approvalSpan = tracer.startSpan("tessera.approval.wait", { kind: SpanKind.INTERNAL }, otelCtx);
             approvalSpan.setAttributes({ "tessera.tool.id": tool_id, "tessera.call.id": call_id });
-            let approved: boolean;
-            try {
-              approved = await this.approvalGate.waitForApproval({
-                call_id,
-                tool_id,
-                session_id: ctx.session_id,
-                input_preview: inputPreview,
-              });
-              approvalSpan.setAttributes({
-                "tessera.approval.decision": approved ? "granted" : "denied",
-                "tessera.approval.duration_ms": Date.now() - approvalStart,
-              });
-            } catch (err) {
-              approvalSpan.recordException(err instanceof Error ? err : new Error(String(err)));
-              approvalSpan.setStatus({ code: SpanStatusCode.ERROR });
-              throw err;
-            } finally {
-              approvalSpan.end();
-            }
-
-            ctx.status = "active";
-
-            this.auditClient.logEvent({
-              event_type: approved ? "APPROVAL_GRANTED" : "APPROVAL_DENIED",
+            const approvalPromise = this.approvalGate.waitForApproval({
+              call_id,
+              tool_id,
               session_id: ctx.session_id,
-              user_id: ctx.user_id,
-              payload: { call_id, tool_id },
-              severity: approved ? "INFO" : "WARN",
+              input_preview: inputPreview,
             });
-
-            if (!approved) {
-              toolResultsBuffer.push({ call_id, tool_id, result: "[TOOL EXECUTION DENIED BY USER]" });
-              yield {
-                error: {
-                  code: "APPROVAL_DENIED",
-                  message: `Tool '${tool_id}' was denied by the user`,
-                },
-              };
-              continue;
-            }
+            approvalPromises.push({
+              call_id, tool_id, promise: approvalPromise,
+              approvalSpanStarted: Date.now(),
+              approvalSpan,
+            });
           } else {
             yield {
               tool_pending: {
@@ -604,268 +589,16 @@ export class AgentLoop {
             };
           }
 
-          // Execute the tool — route to skills engine or built-in sandbox
-          let toolInputJson = JSON.stringify(input);
-
-          const skillRoute = skillRoutes.get(tool_id);
-
-          // Inject vault credentials for skill tools that declare credential_refs.
-          // For each ref name, resolve the vault UUID, enrich the input JSON with
-          // __VAULT_REF:uuid__ placeholders, then call injectCredential to substitute
-          // real values — the LLM and sandbox never see raw secret material.
-          if (skillRoute && skillRoute.credential_refs.length > 0) {
-            try {
-              const enriched = JSON.parse(toolInputJson) as Record<string, unknown>;
-              let firstRefId: string | null = null;
-              for (const refName of skillRoute.credential_refs) {
-                const refId = await this.vaultClient.getSecretRef("skill-creds", refName);
-                if (refId) {
-                  enriched[refName] = `__VAULT_REF:${refId}__`;
-                  if (!firstRefId) firstRefId = refId;
-                }
-              }
-              if (firstRefId) {
-                // Any valid refId lets the vault resolve ALL __VAULT_REF:*__ patterns
-                toolInputJson = await this.vaultClient.injectCredential(
-                  firstRefId, JSON.stringify(enriched), ""
-                );
-              } else {
-                toolInputJson = JSON.stringify(enriched);
-              }
-            } catch {
-              // Vault unreachable or credential not found — skill will fail at runtime
-            }
-          }
-
-          // URL safety check for http_request tools (SSRF + DNS rebinding prevention)
-          if (tool_id === "http_request") {
-            const parsedInput = JSON.parse(toolInputJson) as { url?: string };
-            // checkUrlSafetyResolved: sync string checks + DNS resolution to catch
-            // rebinding attacks where hostname re-maps to a private IP at fetch time
-            const urlCheck = await this.sanitizer.checkUrlSafetyResolved(parsedInput.url ?? "");
-            if (!urlCheck.safe) {
-              this.auditClient.logEvent({
-                event_type: "POLICY_DENIED",
-                session_id: ctx.session_id,
-                user_id: ctx.user_id,
-                payload: { call_id, tool_id, reason: urlCheck.reason, category: urlCheck.category },
-                severity: "WARN",
-              });
-              // Trigger 5c — POLICY_DENIED (SSRF block). Fire-and-forget.
-              void this.alertingService?.fireAlert({
-                event_type: "POLICY_DENIED",
-                timestamp: new Date().toISOString(),
-                tessera_version: TESSERA_VERSION,
-                session_id: ctx.session_id,
-                user_id: ctx.user_id,
-                reason: "ssrf_block",
-                tool_id,
-              }, (_e: AlertAuditEvent) => this.auditClient.logEvent(toLogEventParams(_e)));
-              yield { error: { code: "POLICY_DENIED", message: `URL blocked: ${urlCheck.reason}` } };
-              toolResultsBuffer.push({
-                call_id, tool_id,
-                result: `[URL BLOCKED: ${urlCheck.reason ?? urlCheck.category}]`,
-              });
-              continue;
-            }
-          }
-
-          const image = TOOL_IMAGES[tool_id] ?? `tessera/${tool_id}:latest`;
-
-          this.auditClient.logEvent({
-            event_type: "TOOL_CALL",
-            session_id: ctx.session_id,
-            user_id: ctx.user_id,
-            payload: {
-              call_id,
-              tool_id,
-              image: skillRoute ? `skill:${skillRoute.skill_id}@${skillRoute.skill_version}` : image,
-              input_preview: inputPreview,
-            },
-            severity: "INFO",
+          // Store for parallel execution after the stream
+          preparedCalls.push({
+            call_id,
+            tool_id,
+            input,
+            inputPreview,
+            decision,
+            ...(skillRoute !== undefined && { skillRoute }),
+            policyDenied: false,
           });
-
-          const startMs = Date.now();
-          let toolResult: string;
-          let toolSuccess = false;
-          const toolSpan = tracer.startSpan("tessera.tool.run", { kind: SpanKind.INTERNAL }, otelCtx);
-          toolSpan.setAttributes({
-            "tessera.tool.id": tool_id,
-            "tessera.tool.image": skillRoute
-              ? `skill:${skillRoute.skill_id}@${skillRoute.skill_version}`
-              : (TOOL_IMAGES[tool_id] ?? `tessera/${tool_id}:latest`),
-          });
-
-          try {
-            // Skill tool: delegate to skills-engine gRPC
-            if (skillRoute && this.skillsClient) {
-              const result = await this.skillsClient.executeSkillTool({
-                skill_id: skillRoute.skill_id,
-                skill_version: skillRoute.skill_version,
-                tool_id,
-                input_json: toolInputJson,
-                call_id,
-                session_id: ctx.session_id,
-              });
-              const durationMs = Date.now() - startMs;
-              toolSuccess = result.success;
-              toolSpan.setAttributes({
-                "tessera.tool.exit_code": result.exit_code,
-                "tessera.tool.duration_ms": durationMs,
-                "tessera.tool.timed_out": result.timed_out,
-              });
-              toolResult = result.timed_out
-                ? `[TIMEOUT after ${durationMs}ms]`
-                : result.stdout || result.stderr || `[Exit code: ${result.exit_code}]`;
-
-              this.auditClient.logEvent({
-                event_type: "TOOL_RESULT",
-                session_id: ctx.session_id,
-                user_id: ctx.user_id,
-                payload: {
-                  call_id,
-                  tool_id,
-                  skill_id: skillRoute.skill_id,
-                  exit_code: result.exit_code,
-                  duration_ms: durationMs,
-                  timed_out: result.timed_out,
-                  oom_killed: result.oom_killed,
-                  success: toolSuccess,
-                },
-                severity: toolSuccess ? "INFO" : "WARN",
-              });
-
-              yield {
-                tool_result: {
-                  call_id,
-                  tool_id,
-                  success: toolSuccess,
-                  duration_ms: durationMs,
-                  error_message: toolSuccess ? "" : result.stderr,
-                },
-              };
-            } else {
-            // Built-in tool: execute via sandbox directly
-            const result = await this.sandboxClient.runTool({
-              call_id,
-              tool_id,
-              image,
-              input_json: toolInputJson,
-              timeout_seconds: decision.resource_limits.timeout_seconds,
-              memory_bytes: decision.resource_limits.memory_bytes,
-              cpu_shares: decision.resource_limits.cpu_shares,
-              pids_limit: decision.resource_limits.pids_limit,
-              network_mode: tool_id === "http_request" ? "restricted" : "none",
-              // Named Docker volume: persists file_read/file_write data across tool calls
-              workspace_volume: `tessera-workspace-${ctx.session_id}`,
-            });
-
-            const durationMs = Date.now() - startMs;
-            toolSuccess = result.exit_code === 0 && !result.timed_out;
-            toolSpan.setAttributes({
-              "tessera.tool.exit_code": result.exit_code,
-              "tessera.tool.duration_ms": durationMs,
-              "tessera.tool.timed_out": result.timed_out,
-            });
-            toolResult = result.timed_out
-              ? `[TIMEOUT after ${durationMs}ms]`
-              : result.stdout || result.stderr || `[Exit code: ${result.exit_code}]`;
-
-            this.auditClient.logEvent({
-              event_type: "TOOL_RESULT",
-              session_id: ctx.session_id,
-              user_id: ctx.user_id,
-              payload: {
-                call_id,
-                tool_id,
-                exit_code: result.exit_code,
-                duration_ms: durationMs,
-                timed_out: result.timed_out,
-                oom_killed: result.oom_killed,
-                success: toolSuccess,
-              },
-              severity: toolSuccess ? "INFO" : "WARN",
-            });
-
-            yield {
-              tool_result: {
-                call_id,
-                tool_id,
-                success: toolSuccess,
-                duration_ms: durationMs,
-                error_message: toolSuccess ? "" : result.stderr,
-              },
-            };
-            } // end else (built-in tool)
-          } catch (err) {
-            const durationMs = Date.now() - startMs;
-            toolResult = `[SANDBOX ERROR: ${err instanceof Error ? err.message : String(err)}]`;
-            toolSpan.recordException(err instanceof Error ? err : new Error(String(err)));
-            toolSpan.setStatus({ code: SpanStatusCode.ERROR });
-
-            this.auditClient.logEvent({
-              event_type: "TOOL_RESULT",
-              session_id: ctx.session_id,
-              user_id: ctx.user_id,
-              payload: { call_id, tool_id, error: toolResult, duration_ms: durationMs },
-              severity: "ERROR",
-            });
-
-            yield {
-              tool_result: {
-                call_id,
-                tool_id,
-                success: false,
-                duration_ms: durationMs,
-                error_message: toolResult,
-              },
-            };
-          } finally {
-            toolSpan.end();
-          }
-
-          // Track tool failures for lesson extraction at session end
-          if (!toolSuccess) ctx.hadToolFailure = true;
-
-          // Scan tool output for prompt injection before handing it to the LLM
-          const outputScan = await this.sanitizer.sanitizeExternalContent(
-            toolResult, ctx.session_id, `tool:${tool_id}`
-          );
-          if (
-            outputScan.injection_scan.is_suspicious &&
-            outputScan.injection_scan.highest_severity === "critical"
-          ) {
-            this.auditClient.logEvent({
-              event_type: "INJECTION_DETECTED",
-              session_id: ctx.session_id,
-              user_id: ctx.user_id,
-              payload: {
-                call_id,
-                tool_id,
-                pattern: outputScan.injection_scan.matches[0]?.pattern_id,
-                source: `tool:${tool_id}`,
-              },
-              severity: "CRITICAL",
-            });
-            // Trigger 2 — INJECTION_DETECTED (tool output). Fire-and-forget.
-            void this.alertingService?.fireAlert({
-              event_type: "INJECTION_DETECTED",
-              timestamp: new Date().toISOString(),
-              tessera_version: TESSERA_VERSION,
-              session_id: ctx.session_id,
-              user_id: ctx.user_id,
-              source: "tool_output",
-              excerpt: stripVaultRefs(toolResult.slice(0, 256)),
-            }, (_e: AlertAuditEvent) => this.auditClient.logEvent(toLogEventParams(_e)));
-            toolResultsBuffer.push({
-              call_id, tool_id,
-              result: "[TOOL OUTPUT SUPPRESSED: Prompt injection attempt detected]",
-            });
-          } else {
-            // Use session-delimited wrapped content (mitigates indirect injection)
-            toolResultsBuffer.push({ call_id, tool_id, result: outputScan.wrapped_content });
-          }
-          toolCallsExecuted++;
         } else if (chunk.type === "finish") {
           totalInputTokens += chunk.usage.input_tokens;
           totalOutputTokens += chunk.usage.output_tokens;
@@ -891,6 +624,113 @@ export class AgentLoop {
       } finally {
         genAiSpan.end();
         void streamError; // suppress unused warning
+      }
+
+      // ── Phase 2: Resolve all approval promises ──────────────────────
+      // All approval requests were started during streaming — now await them.
+      // Per-tool approval (no batch auto-approve): each tool independently
+      // waits for the user's decision.
+      for (const ap of approvalPromises) {
+        let approved: boolean;
+        try {
+          approved = await ap.promise;
+          ap.approvalSpan.setAttributes({
+            "tessera.approval.decision": approved ? "granted" : "denied",
+            "tessera.approval.duration_ms": Date.now() - ap.approvalSpanStarted,
+          });
+        } catch (err) {
+          ap.approvalSpan.recordException(err instanceof Error ? err : new Error(String(err)));
+          ap.approvalSpan.setStatus({ code: SpanStatusCode.ERROR });
+          approved = false;
+        } finally {
+          ap.approvalSpan.end();
+        }
+
+        this.auditClient.logEvent({
+          event_type: approved ? "APPROVAL_GRANTED" : "APPROVAL_DENIED",
+          session_id: ctx.session_id,
+          user_id: ctx.user_id,
+          payload: { call_id: ap.call_id, tool_id: ap.tool_id },
+          severity: approved ? "INFO" : "WARN",
+        });
+
+        if (!approved) {
+          toolResultsBuffer.push({ call_id: ap.call_id, tool_id: ap.tool_id, result: "[TOOL EXECUTION DENIED BY USER]" });
+          yield {
+            error: {
+              code: "APPROVAL_DENIED",
+              message: `Tool '${ap.tool_id}' was denied by the user`,
+            },
+          };
+        }
+      }
+      ctx.status = "active";
+
+      // ── Phase 3: Execute approved tools in parallel ─────────────────
+      // Build PendingToolCall list — only approved calls get executed.
+      // Approval-decision map for O(1) lookup.
+      const approvalResults = new Map(
+        approvalPromises.map((ap) => [ap.call_id, ap])
+      );
+      const pendingCalls: PendingToolCall[] = [];
+      for (const pc of preparedCalls) {
+        const approvalPromise = approvalResults.get(pc.call_id);
+        // approved=true if no approval was needed, or if approval was granted
+        const approved = approvalPromise
+          ? // Need to check the promise result — but we already resolved them above.
+            // For denied calls we already pushed to toolResultsBuffer, so skip them here.
+            !toolResultsBuffer.some((tr) => tr.call_id === pc.call_id && tr.result === "[TOOL EXECUTION DENIED BY USER]")
+          : true;
+
+        if (!approved) continue;
+
+        pendingCalls.push({
+          call_id: pc.call_id,
+          tool_id: pc.tool_id,
+          input: pc.input,
+          inputPreview: pc.inputPreview,
+          decision: pc.decision,
+          approved: true,
+          ...(pc.skillRoute !== undefined && { skillRoute: pc.skillRoute }),
+        });
+      }
+
+      // Execute all pending (approved) tools in parallel via Promise.all
+      if (pendingCalls.length > 0) {
+        const results = await executeToolCallsParallel(
+          pendingCalls,
+          {
+            sandboxClient: this.sandboxClient,
+            vaultClient: this.vaultClient,
+            auditClient: this.auditClient,
+            sanitizer: this.sanitizer,
+            ...(this.skillsClient !== undefined && { skillsClient: this.skillsClient }),
+            ...(this.alertingService !== undefined && { alertingService: this.alertingService }),
+          },
+          ctx,
+          otelCtx,
+          tracer,
+        );
+
+        // ── Process results in original order ────────────────────────
+        for (const r of results) {
+          // Track tool failures for lesson extraction at session end
+          if (!r.success) ctx.hadToolFailure = true;
+
+          // Yield tool_result to the gateway
+          yield {
+            tool_result: {
+              call_id: r.call_id,
+              tool_id: r.tool_id,
+              success: r.success,
+              duration_ms: r.durationMs,
+              error_message: r.errorMessage ?? "",
+            },
+          };
+
+          toolResultsBuffer.push({ call_id: r.call_id, tool_id: r.tool_id, result: r.result });
+          toolCallsExecuted++;
+        }
       }
 
       // Write to conversation history in the correct order:
