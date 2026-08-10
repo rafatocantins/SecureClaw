@@ -8,15 +8,23 @@ import crypto from "node:crypto";
 import { WebSocket } from "ws";
 
 // ── Token generation ───────────────────────────────────────────────────────
-// Matches auth.plugin.ts generateGatewayToken: {userId}.{timestamp_ms}.{hmac}
+// Matches auth.plugin.ts generateGatewayToken: {userId}.{role}.{timestamp_ms}.{hmac}
+//
+// The gateway rejects 3-part tokens (pre-4-part format). Tokens must be
+// 4-part: userId.role.timestamp.sig where sig = HMAC(secret, userId:role:timestamp).
 
-export function generateToken(userId: string, secret: string): string {
+export function generateToken(
+  userId: string,
+  secret: string,
+  role: "admin" | "user" = "user",
+): string {
   const ts = Date.now().toString();
+  const payload = `${userId}:${role}:${ts}`;
   const sig = crypto
     .createHmac("sha256", secret)
-    .update(`${userId}:${ts}`)
+    .update(payload)
     .digest("hex");
-  return `${userId}.${ts}.${sig}`;
+  return `${userId}.${role}.${ts}.${sig}`;
 }
 
 // ── Session management ─────────────────────────────────────────────────────
