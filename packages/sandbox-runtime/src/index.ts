@@ -8,6 +8,20 @@ export type { ToolRunResult } from "./container-manager.js";
 export type { RunToolParams } from "./sandbox.service.js";
 export type { ContainerBuildConfig } from "./container-config.js";
 
+// ── HTTP health-check server ──────────────────────────────────────────────
+// Docker HEALTHCHECK uses HTTP GET on :19005/health so the container
+// transitions to "healthy" as soon as the gRPC server is accepting connections.
+function startHealthServer(): void {
+  const http = require("node:http") as typeof import("node:http");
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok" }));
+  });
+  server.listen(19005, "0.0.0.0", () => {
+    process.stdout.write("[sandbox] Health server listening on :19005\n");
+  });
+}
+
 // ── Standalone server entry point ─────────────────────────────────────────
 const isMain = process.argv[1]?.endsWith("index.js");
 if (isMain) {
@@ -18,6 +32,9 @@ if (isMain) {
   const { startSandboxGrpcServer: start } = await import("./grpc/server.js");
 
   const svc = new Svc();
+
+  // Start health server immediately so Docker HEALTHCHECK succeeds.
+  startHealthServer();
 
   // Start gRPC server immediately so the health check can succeed.
   // Docker connectivity is probed in the background — the service

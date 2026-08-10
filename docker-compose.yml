@@ -232,11 +232,11 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "const net=require('net');const c=net.connect(19004,'127.0.0.1',()=>{c.destroy();process.exit(0)});c.on('error',()=>process.exit(1));"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-      start_period: 45s
+      test: ["CMD", "node", "-e", "const http=require('http');const req=http.get('http://127.0.0.1:19005/health',(r)=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>{try{const j=JSON.parse(d);process.exit(j.status==='ok'?0:1)}catch{process.exit(1)}})});req.on('error',()=>process.exit(1));req.setTimeout(4000,()=>{req.destroy();process.exit(1)});"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   # ── Telegram Channel ────────────────────────────────────────────────────────
   # Start with: docker compose --profile channels up -d
