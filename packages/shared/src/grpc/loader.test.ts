@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { serverCredentials, clientCredentials } from "./loader.js";
 import type { GrpcConfig } from "../config/grpc-config.js";
 
