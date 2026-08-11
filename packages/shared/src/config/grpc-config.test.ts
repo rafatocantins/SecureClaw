@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { loadGrpcConfig } from "./grpc-config.js";
-import type { GrpcConfig } from "./grpc-config.js";
 
 // Save and restore original env vars
 function withEnv(vars: Record<string, string | undefined>, fn: () => void): void {

@@ -18,7 +18,6 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { readFileSync, existsSync } from "node:fs";
 import {
   type GrpcConfig,
   loadGrpcConfig,
