@@ -4,20 +4,34 @@
  * Implements the Phase 3D orchestration pipeline:
  *   classify → route model → decompose → worker → verify → (retry on failure)
  *
- * Default disabled (TESSERA_ORCHESTRATOR_ENABLED=false) for backward
- * compatibility. Set the env var to "true" to activate.
+ * When TESSERA_ORCHESTRATOR_ENABLED=true and LLM providers are injected,
+ * uses real LLM calls for decomposition and worker execution. Falls back
+ * to stubs when disabled or providers are unavailable.
  */
 
 import { classifyComplexity } from "./triage-classifier.js";
 import { routeModel } from "./model-router.js";
 import { decompose } from "./task-decomposer.js";
-import { verify } from "./output-verifier.js";
+import { verifyWithFeedback } from "./output-verifier.js";
+import { OutputVerifier } from "../verifier/output-verifier.js";
+import type { LLMProvider } from "../llm/provider.interface.js";
 import {
   type OrchestratorConfig,
   type Task,
   type TaskResult,
   DEFAULT_ORCHESTRATOR_CONFIG,
 } from "./types.js";
+
+/**
+ * Map of model role → LLM provider instance.
+ * Thinker: used for task decomposition.
+ * Worker: used for step execution.
+ * Both are optional — when absent, stubs are used.
+ */
+export interface OrchestratorProviders {
+  thinker?: LLMProvider;
+  worker?: LLMProvider;
+}
 
 /** Read orchestrator configuration from environment variables. */
 export function loadConfigFromEnv(): OrchestratorConfig {
@@ -44,18 +58,27 @@ export function loadConfigFromEnv(): OrchestratorConfig {
   };
 }
 
+const WORKER_SYSTEM_PROMPT = `You are a precise task execution agent. Execute the given step accurately and return ONLY the result. Do not add commentary, explanations, or markdown formatting. Be concise and direct.`;
+
 /**
  * Orchestrator — Phase 3D pipeline.
  *
- * Each instance is initialized with a config (from env or explicit).
- * The execute() method runs the full pipeline: classify → route →
- * decompose → execute worker → verify → retry on failure.
+ * Each instance is initialized with a config (from env or explicit) and
+ * optional LLM providers. The execute() method runs the full pipeline:
+ * classify → route → decompose → execute worker → verify → retry on failure.
  */
 export class Orchestrator {
   readonly config: OrchestratorConfig;
+  private readonly providers: OrchestratorProviders;
+  private readonly verifier: OutputVerifier;
 
-  constructor(config?: Partial<OrchestratorConfig>) {
+  constructor(
+    config?: Partial<OrchestratorConfig>,
+    providers?: OrchestratorProviders,
+  ) {
     this.config = { ...DEFAULT_ORCHESTRATOR_CONFIG, ...config };
+    this.providers = providers ?? {};
+    this.verifier = new OutputVerifier();
   }
 
   /**
@@ -65,10 +88,10 @@ export class Orchestrator {
    *   1. Guard: throw if orchestrator is disabled
    *   2. Triage: classify task complexity
    *   3. Route: select the appropriate model
-   *   4. Decompose: break task into steps (Thinker)
-   *   5. Worker: execute steps
-   *   6. Verify: validate output (Verifier gate)
-   *   7. Retry: if verification fails, retry up to maxRetries
+   *   4. Decompose: break task into steps (Thinker LLM or stub)
+   *   5. Worker: execute steps (Worker LLM or stub)
+   *   6. Verify: validate output (Verifier gate with real OutputVerifier)
+   *   7. Retry: if verification fails, retry up to maxRetries with feedback
    *
    * @throws Error if the orchestrator is not enabled
    */
@@ -89,27 +112,80 @@ export class Orchestrator {
     let lastOutput = "";
     let retriesUsed = 0;
     let verifierPassed = false;
+    let verifierFeedback: string | undefined;
 
-    // Decompose once (Thinker stage)
-    const steps = decompose(classifiedTask);
+    // Decompose once (Thinker stage) — uses LLM if provider available
+    const steps = await decompose(classifiedTask, this.providers.thinker);
 
     // Worker stage: execute all steps
-    for (const step of steps) {
-      lastOutput += step; // stub execution — replaces in future with actual LLM call
+    if (this.providers.worker) {
+      // Real LLM execution: call worker for each step
+      const stepResults: string[] = [];
+      for (const step of steps) {
+        try {
+          const stepOutput = await this.providers.worker.complete(
+            WORKER_SYSTEM_PROMPT,
+            step,
+            2048,
+          );
+          stepResults.push(stepOutput);
+        } catch {
+          // Worker call failed — use step description as fallback
+          stepResults.push(`[Worker LLM failed for step: ${step}]`);
+        }
+      }
+      lastOutput = stepResults.join("\n\n");
+    } else {
+      // Stub execution: concatenate step descriptions
+      for (const step of steps) {
+        lastOutput += step;
+      }
     }
 
-    // Verifier gate with retry loop
-    for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+    // Verifier gate with retry loop (max 2 retries with feedback)
+    const maxRetries = Math.min(this.config.maxRetries, 2);
+
+    // Use real OutputVerifier only when we have real providers (not stub mode).
+    // In stub mode, the fallback heuristic (non-empty, no ERROR) is used.
+    const effectiveVerifier = this.providers.worker ? this.verifier : undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       retriesUsed = attempt;
-      verifierPassed = verify(lastOutput, classifiedTask);
+
+      const feedback = verifyWithFeedback(
+        lastOutput,
+        classifiedTask,
+        effectiveVerifier,
+      );
+      verifierPassed = feedback.passed;
 
       if (verifierPassed) {
         break;
       }
 
-      // If we have retries left, re-run worker on the output
-      if (attempt < this.config.maxRetries) {
-        // Remove ERROR markers and retry annotations for clean re-processing
+      // Store feedback for the result
+      verifierFeedback = feedback.summary;
+
+      // If we have retries left, re-run worker with verifier feedback
+      if (attempt < maxRetries && this.providers.worker) {
+        // Re-execute steps with verifier feedback as additional context
+        const retryStepResults: string[] = [];
+        for (const step of steps) {
+          try {
+            const retryPrompt = `${step}\n\n[Previous attempt had issues: ${feedback.summary}. Please fix these issues.]`;
+            const stepOutput = await this.providers.worker.complete(
+              WORKER_SYSTEM_PROMPT,
+              retryPrompt,
+              2048,
+            );
+            retryStepResults.push(stepOutput);
+          } catch {
+            retryStepResults.push(`[Worker LLM failed for retry step: ${step}]`);
+          }
+        }
+        lastOutput = retryStepResults.join("\n\n");
+      } else if (attempt < maxRetries) {
+        // Stub retry: remove ERROR markers
         lastOutput = lastOutput.replace(/ERROR/gi, "FIXED");
       }
     }
@@ -120,6 +196,7 @@ export class Orchestrator {
       verifierPassed,
       retriesUsed,
       modelUsed,
+      ...(verifierFeedback !== undefined ? { verifierFeedback } : {}),
     };
   }
 }
