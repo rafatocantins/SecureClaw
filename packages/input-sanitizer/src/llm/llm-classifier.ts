@@ -46,7 +46,7 @@ export async function classifyExternalContent(
   classifier: LLMClassifierAdapter,
   options: ClassifyOptions = {}
 ): Promise<ClassificationResult> {
-  const { skip_llm = false, threshold: _threshold = 0.7 } = options;
+  const { skip_llm = false } = options;
 
   if (skip_llm || content.trim().length === 0) {
     return {
