@@ -58,11 +58,18 @@ export type {
   VerificationCheck,
   VerificationInput,
 } from "./verifier/types.js";
+
+// ── Configuration (PATT-002) ───────────────────────────────────────────────
+export { loadConfig, getProviderSecrets } from "./config.js";
+export type { AgentRuntimeConfig, ProviderSecrets } from "./config.js";
 // ── Standalone server entry point ─────────────────────────────────────────
 const isMain = process.argv[1]?.endsWith("index.js");
 if (isMain) {
   const { loadDotenv } = await import("@tessera/shared");
   loadDotenv();
+
+  const { loadConfig } = await import("./config.js");
+  const config = loadConfig();
 
   const { initTelemetry, shutdownTelemetry } = await import("./telemetry.js");
   initTelemetry();
@@ -113,12 +120,10 @@ if (isMain) {
   // Webhook alerting — enabled when TESSERA_WEBHOOK_URL is set.
   // Both URL and secret must be present to activate (secret enables HMAC signing).
   // TESSERA_WEBHOOK_SECRET is optional — if absent, no X-Webhook-Signature header is sent.
-  const webhookUrl = process.env["TESSERA_WEBHOOK_URL"];
-  const webhookSecret = process.env["TESSERA_WEBHOOK_SECRET"] ?? "";
   let alertingService: InstanceType<typeof AlertingService> | undefined;
-  if (webhookUrl) {
+  if (config.webhookUrl) {
     try {
-      alertingService = new AlertingService({ webhookUrl, webhookSecret });
+      alertingService = new AlertingService({ webhookUrl: config.webhookUrl, webhookSecret: config.webhookSecret });
       process.stdout.write("[agent-runtime] Webhook alerting enabled\n");
     } catch (err) {
       process.stderr.write(`[agent-runtime] Webhook alerting DISABLED — invalid TESSERA_WEBHOOK_URL: ${err instanceof Error ? err.message : String(err)}\n`);
@@ -127,24 +132,10 @@ if (isMain) {
 
   const agentLoop = new Loop(sanitizer, policyEngine, sessionManager.approvalGate, vaultClient, auditClient, sandboxClient, skillsClient, memoryClient, alertingService);
 
-  // Provider configuration — centralizes all LLM provider env reads at startup.
-  const providerConfig: ProviderConfig = {
-    getApiKey(provider: string): string | undefined {
-      return process.env[`${provider.toUpperCase()}_API_KEY`];
-    },
-    getModel(provider: string): string | undefined {
-      return process.env[`${provider.toUpperCase()}_MODEL`];
-    },
-    getBaseUrl(provider: string): string | undefined {
-      if (provider === "ollama") return process.env["OLLAMA_BASE_URL"];
-      return undefined;
-    },
-  };
+  // Provider configuration is now pre-loaded via loadConfig() above (PATT-002).
+  // No lazy process.env reads remain — all values were resolved at startup.
 
-  // Read gRPC bind address at startup (was previously read inside startAgentGrpcServer)
-  const agentRuntimeAddr = process.env["AGENT_RUNTIME_ADDR"] ?? "0.0.0.0:19001";
-
-  await start(sessionManager, agentLoop, providerConfig, agentRuntimeAddr);
+  await start(sessionManager, agentLoop, config, config.agentRuntimeAddr);
   process.stdout.write("[agent-runtime] Service ready\n");
 
   // Graceful shutdown: flush OTel spans before exit

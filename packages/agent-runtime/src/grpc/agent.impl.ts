@@ -8,6 +8,8 @@ import type * as grpc from "@grpc/grpc-js";
 import type { SessionManager } from "../session/session-manager.js";
 import type { AgentLoop } from "../llm/agent-loop.js";
 import { createProvider } from "../llm/provider-factory.js";
+import type { AgentRuntimeConfig } from "../config.js";
+import { getProviderSecrets } from "../config.js";
 import type {
   GrpcCreateSessionRequest,
   GrpcCreateSessionResponse,
@@ -29,6 +31,11 @@ type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type StreamCall<Req, Res> = grpc.ServerWritableStream<Req, Res>;
 type Callback<Res> = grpc.sendUnaryData<Res>;
 
+/**
+ * @deprecated Use AgentRuntimeConfig (from config.ts) instead.
+ * ProviderConfig with lazy getters is replaced by pre-loaded values
+ * to eliminate process.env reads during request handling (PATT-002).
+ */
 export interface ProviderConfig {
   getApiKey(provider: string): string | undefined;
   getModel(provider: string): string | undefined;
@@ -38,7 +45,7 @@ export interface ProviderConfig {
 export function makeAgentImpl(
   sessionManager: SessionManager,
   agentLoop: AgentLoop,
-  providerConfig: ProviderConfig
+  config: AgentRuntimeConfig
 ) {
   return {
     CreateSession(
@@ -52,22 +59,21 @@ export function makeAgentImpl(
         let provider;
         try {
           const providerName = req.provider as "anthropic" | "openai" | "gemini" | "ollama";
-          const apiKey = providerConfig.getApiKey(req.provider);
-          const model = providerConfig.getModel(req.provider);
+          const secrets = getProviderSecrets(config, req.provider);
 
           if (providerName === "ollama") {
             provider = createProvider({
               provider: "ollama",
-              model: model ?? "llama3.2",
-              base_url: providerConfig.getBaseUrl("ollama") ?? "http://127.0.0.1:11434",
+              model: secrets.model ?? "llama3.2",
+              base_url: secrets.baseUrl ?? "http://127.0.0.1:11434",
               max_tokens: 4096,
             });
           } else if (providerName === "anthropic") {
-            provider = createProvider({ provider: "anthropic", model: model ?? "claude-opus-4-6", credential_ref: "", max_tokens: 4096 }, apiKey);
+            provider = createProvider({ provider: "anthropic", model: secrets.model ?? "claude-opus-4-6", credential_ref: "", max_tokens: 4096 }, secrets.apiKey);
           } else if (providerName === "openai") {
-            provider = createProvider({ provider: "openai", model: model ?? "gpt-4o", credential_ref: "", max_tokens: 4096 }, apiKey);
+            provider = createProvider({ provider: "openai", model: secrets.model ?? "gpt-4o", credential_ref: "", max_tokens: 4096 }, secrets.apiKey);
           } else {
-            provider = createProvider({ provider: "gemini", model: model ?? "gemini-2.0-flash", credential_ref: "", max_tokens: 4096 }, apiKey);
+            provider = createProvider({ provider: "gemini", model: secrets.model ?? "gemini-2.0-flash", credential_ref: "", max_tokens: 4096 }, secrets.apiKey);
           }
         } catch (err) {
           callback(null, {
