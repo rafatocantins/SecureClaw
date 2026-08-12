@@ -370,17 +370,32 @@ export class MemoryService {
     const queryVec = await this.embeddingClient.embed(queryText);
     if (queryVec === null) return new Map();
 
-    // Load candidate embeddings for this user's rows
+    // Load candidate embeddings for this user's rows.
+    // Table names cannot be parameterised in SQLite, so we branch on the
+    // closed-set sourceTable value instead of interpolating into the query.
     type EmbeddingRow = { source_id: number; vector: Buffer };
-    const rows = this.db
-      .prepare(
-        `SELECT e.source_id, e.vector
-         FROM embeddings e
-         JOIN ${sourceTable} s ON s.id = e.source_id
-         WHERE e.source_table = ?
-           AND s.user_id = ?`
-      )
-      .all(sourceTable, userId) as unknown as EmbeddingRow[];
+    let rows: EmbeddingRow[];
+    if (sourceTable === "messages") {
+      rows = this.db
+        .prepare(
+          `SELECT e.source_id, e.vector
+           FROM embeddings e
+           JOIN messages s ON s.id = e.source_id
+           WHERE e.source_table = 'messages'
+             AND s.user_id = ?`
+        )
+        .all(userId) as unknown as EmbeddingRow[];
+    } else {
+      rows = this.db
+        .prepare(
+          `SELECT e.source_id, e.vector
+           FROM embeddings e
+           JOIN lessons s ON s.id = e.source_id
+           WHERE e.source_table = 'lessons'
+             AND s.user_id = ?`
+        )
+        .all(userId) as unknown as EmbeddingRow[];
+    }
 
     const scores = new Map<number, number>();
 
