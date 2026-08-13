@@ -43,7 +43,7 @@ type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type StreamCall<Req, Res> = grpc.ServerWritableStream<Req, Res>;
 type Callback<Res> = grpc.sendUnaryData<Res>;
 
-export function makeMemoryImpl(memorySvc: MemoryService) {
+export function makeMemoryImpl(memorySvc: MemoryService): grpc.UntypedServiceImplementation {
   return {
     StoreSession(
       call: UnaryCall<GrpcStoreSessionRequest, GrpcStoreSessionResponse>,

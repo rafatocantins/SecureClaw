@@ -32,7 +32,7 @@ import type {
 type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
 type Callback<Res> = grpc.sendUnaryData<Res>;
 
-export function makeVaultImpl(vaultSvc: VaultService) {
+export function makeVaultImpl(vaultSvc: VaultService): grpc.UntypedServiceImplementation {
   return {
     SetSecret(
       call: UnaryCall<GrpcSetSecretRequest, GrpcSetSecretResponse>,
