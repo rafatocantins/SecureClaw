@@ -43,6 +43,10 @@ export interface ProviderConfig {
 }
 
 interface AgentServiceHandlers {
+  // Index signature required so the object is assignable to
+  // grpc.UntypedServiceImplementation in server.addService().
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [name: string]: (call: any, callback: any) => void;
   CreateSession(
     call: UnaryCall<GrpcCreateSessionRequest, GrpcCreateSessionResponse>,
     callback: Callback<GrpcCreateSessionResponse>
