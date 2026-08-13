@@ -3,18 +3,19 @@
  *
  * Security: auth required, invalid archives rejected, partial failures return 207.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { createGzip } from "node:zlib";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import Fastify from "fastify";
+import type { FastifyInstance } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { setGatewaySecret, generateGatewayToken } from "../plugins/auth.plugin.js";
 import { backupRoute } from "./backup.route.js";
 
 const SECRET = "test-backup-secret-xyz789";
-const VALID_TOKEN = () => generateGatewayToken("admin-user", SECRET, "admin");
-const USER_TOKEN = () => generateGatewayToken("regular-user", SECRET, "user");
+const VALID_TOKEN = (): string => generateGatewayToken("admin-user", SECRET, "admin");
+const USER_TOKEN = (): string => generateGatewayToken("regular-user", SECRET, "user");
 
 const FAKE_DUMP = {
   data: Buffer.from("fake-compressed-data"),
@@ -29,10 +30,47 @@ const FAKE_RESTORE = {
   restart_required: true,
 };
 
+type MockVaultClient = {
+  listSecretRefs: Mock;
+  setSecret: Mock;
+  deleteSecret: Mock;
+  getSecretRef: Mock;
+  rotateKey: Mock;
+  dumpState: () => Promise<typeof FAKE_DUMP>;
+  restoreState: () => Promise<typeof FAKE_RESTORE>;
+  close: Mock;
+};
+
+type MockAuditClient = {
+  logEvent: Mock;
+  queryEvents: Mock;
+  getCostSummary: Mock;
+  getTeamCostSummary: Mock;
+  getTeamQuota: Mock;
+  setTeamQuota: Mock;
+  checkQuotaExceeded: Mock;
+  getComplianceReport: Mock;
+  dumpState: () => Promise<typeof FAKE_DUMP>;
+  restoreState: () => Promise<typeof FAKE_RESTORE>;
+  close: Mock;
+};
+
+type MockSkillsClient = {
+  publishSkill: Mock;
+  listMarketplaceSkills: Mock;
+  getMarketplaceSkill: Mock;
+  installFromMarketplace: Mock;
+  installSkill: Mock;
+  listInstalledSkills: Mock;
+  dumpState: () => Promise<typeof FAKE_DUMP>;
+  restoreState: () => Promise<typeof FAKE_RESTORE>;
+  close: Mock;
+};
+
 function makeMockVaultClient(overrides: Partial<{
   dumpState: () => Promise<typeof FAKE_DUMP>;
   restoreState: () => Promise<typeof FAKE_RESTORE>;
-}> = {}) {
+}> = {}): MockVaultClient {
   return {
     listSecretRefs: vi.fn(),
     setSecret: vi.fn(),
@@ -48,7 +86,7 @@ function makeMockVaultClient(overrides: Partial<{
 function makeMockAuditClient(overrides: Partial<{
   dumpState: () => Promise<typeof FAKE_DUMP>;
   restoreState: () => Promise<typeof FAKE_RESTORE>;
-}> = {}) {
+}> = {}): MockAuditClient {
   return {
     logEvent: vi.fn(async () => ({ event_id: 1, success: true, alerts_triggered: [] })),
     queryEvents: vi.fn(),
@@ -67,7 +105,7 @@ function makeMockAuditClient(overrides: Partial<{
 function makeMockSkillsClient(overrides: Partial<{
   dumpState: () => Promise<typeof FAKE_DUMP>;
   restoreState: () => Promise<typeof FAKE_RESTORE>;
-}> = {}) {
+}> = {}): MockSkillsClient {
   return {
     publishSkill: vi.fn(),
     listMarketplaceSkills: vi.fn(),
@@ -91,10 +129,15 @@ vi.mock("../grpc/memory.client.js", () => ({
 }));
 
 async function buildApp(opts: {
-  vaultClient?: ReturnType<typeof makeMockVaultClient>;
-  auditClient?: ReturnType<typeof makeMockAuditClient>;
-  skillsClient?: ReturnType<typeof makeMockSkillsClient>;
-} = {}) {
+  vaultClient?: MockVaultClient;
+  auditClient?: MockAuditClient;
+  skillsClient?: MockSkillsClient;
+} = {}): Promise<{
+  app: FastifyInstance;
+  vaultClient: MockVaultClient;
+  auditClient: MockAuditClient;
+  skillsClient: MockSkillsClient;
+}> {
   const app = Fastify({ logger: false });
   await app.register(fastifyRateLimit, { max: 100, timeWindow: "1 minute" });
 

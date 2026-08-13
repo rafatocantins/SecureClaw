@@ -12,18 +12,25 @@ import {
 const SECRET = "test-gateway-secret";
 
 // Minimal Fastify reply mock
-function makeReply() {
+interface ReplyMock {
+  code: (c: number) => ReplyMock;
+  send: (b: unknown) => Promise<void>;
+  readonly statusCode: number;
+  readonly body: unknown;
+}
+
+function makeReply(): ReplyMock {
   let statusCode = 200;
   let body: unknown;
-  const reply = {
-    code(c: number) {
+  const reply: ReplyMock = {
+    code(c: number): ReplyMock {
       statusCode = c;
       return reply;
     },
-    async send(b: unknown) {
+    async send(b: unknown): Promise<void> {
       body = b;
     },
-    get statusCode() {
+    get statusCode(): number {
       return statusCode;
     },
     get body(): unknown {

@@ -3,13 +3,14 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
+import type { FastifyInstance } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { setGatewaySecret, generateGatewayToken } from "../plugins/auth.plugin.js";
 import { tokenRoute } from "./token.route.js";
 
 const SECRET = "test-route-secret-abc123";
 
-async function buildApp() {
+async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   // Rate limiting is required by tokenRoute (config.rateLimit)
   await app.register(fastifyRateLimit, { max: 100, timeWindow: "1 minute" });

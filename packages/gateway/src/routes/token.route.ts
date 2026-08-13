@@ -34,7 +34,7 @@ export async function tokenRoute(fastify: FastifyInstance): Promise<void> {
     "/refresh",
     {
       config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
-      preHandler: verifyToken,
+      preHandler: [verifyToken],
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const userId = req.userId;

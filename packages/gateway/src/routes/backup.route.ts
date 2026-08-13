@@ -21,6 +21,7 @@ import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { verifyToken, requireRole } from "../plugins/auth.plugin.js";
+import type { GrpcRestoreStateResponse } from "@tessera/shared";
 import type { VaultGrpcClient } from "../grpc/vault.client.js";
 import type { AuditGrpcClient } from "../grpc/audit.client.js";
 import type { SkillsGrpcClient } from "../grpc/skills.client.js";
@@ -186,7 +187,7 @@ export async function backupRoute(
             return;
           }
           envelope = result.data;
-        } catch (err) {
+        } catch {
           await reply.code(400).send({ error: "invalid_backup", message: "Could not decompress or parse backup archive" });
           return;
         }
@@ -197,22 +198,22 @@ export async function backupRoute(
         const services = [
           {
             name: "vault" as const,
-            restore: (e: ServiceBackupEntry) =>
+            restore: (e: ServiceBackupEntry): Promise<GrpcRestoreStateResponse> =>
               fastify.vaultClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
           },
           {
             name: "audit" as const,
-            restore: (e: ServiceBackupEntry) =>
+            restore: (e: ServiceBackupEntry): Promise<GrpcRestoreStateResponse> =>
               opts.auditClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
           },
           {
             name: "memory" as const,
-            restore: (e: ServiceBackupEntry) =>
+            restore: (e: ServiceBackupEntry): Promise<GrpcRestoreStateResponse> =>
               memoryClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
           },
           {
             name: "skills" as const,
-            restore: (e: ServiceBackupEntry) =>
+            restore: (e: ServiceBackupEntry): Promise<GrpcRestoreStateResponse> =>
               fastify.skillsClient.restoreState(Buffer.from(e.data_b64, "base64"), e.checksum_sha256),
           },
         ] as const;

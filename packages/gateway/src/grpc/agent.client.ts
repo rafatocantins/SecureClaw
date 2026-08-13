@@ -79,7 +79,7 @@ export class AgentGrpcClient {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = this.client.SendMessage(req) as any;
 
-    return (async function* () {
+    return (async function* (): AsyncGenerator<GrpcAgentChunk> {
       for await (const chunk of call) {
         yield chunk as GrpcAgentChunk;
       }

@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
+import type { FastifyInstance } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { setGatewaySecret, generateGatewayToken } from "../plugins/auth.plugin.js";
 import { memoryRoute } from "./memory.route.js";
@@ -41,7 +42,7 @@ function makeMemoryClient(lessons: GrpcStoredLesson[] = SAMPLE_LESSONS): MemoryR
   } as unknown as MemoryRouteOptions["memoryClient"];
 }
 
-async function buildApp(opts: MemoryRouteOptions) {
+async function buildApp(opts: MemoryRouteOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(fastifyRateLimit, { max: 200, timeWindow: "1 minute" });
   await app.register(memoryRoute, { prefix: "/api/v1/memory", ...opts });
