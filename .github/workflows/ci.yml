@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  security-events: write
+
 # Cancel in-flight runs for the same PR
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
