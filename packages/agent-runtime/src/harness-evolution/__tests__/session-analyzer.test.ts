@@ -5,7 +5,7 @@
  * getPatternSummary(), empty sessions, and sessions with no problems.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { AuditService, AuditEvent, AuditSession } from "../types.js";
 import { SessionAnalyzer } from "../session-analyzer.js";
 import {

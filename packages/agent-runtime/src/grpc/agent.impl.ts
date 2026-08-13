@@ -42,11 +42,43 @@ export interface ProviderConfig {
   getBaseUrl(provider: string): string | undefined;
 }
 
+interface AgentServiceHandlers {
+  // Index signature required so the object is assignable to
+  // grpc.UntypedServiceImplementation in server.addService().
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [name: string]: (call: any, callback: any) => void;
+  CreateSession(
+    call: UnaryCall<GrpcCreateSessionRequest, GrpcCreateSessionResponse>,
+    callback: Callback<GrpcCreateSessionResponse>
+  ): void;
+  SendMessage(call: StreamCall<GrpcSendMessageRequest, GrpcAgentChunk>): void;
+  ApproveToolCall(
+    call: UnaryCall<GrpcApproveToolCallRequest, GrpcApproveToolCallResponse>,
+    callback: Callback<GrpcApproveToolCallResponse>
+  ): void;
+  TerminateSession(
+    call: UnaryCall<GrpcTerminateSessionRequest, GrpcTerminateSessionResponse>,
+    callback: Callback<GrpcTerminateSessionResponse>
+  ): void;
+  GetSessionStatus(
+    call: UnaryCall<GrpcGetSessionStatusRequest, GrpcGetSessionStatusResponse>,
+    callback: Callback<GrpcGetSessionStatusResponse>
+  ): void;
+  ListSessions(
+    call: UnaryCall<GrpcListSessionsRequest, GrpcListSessionsResponse>,
+    callback: Callback<GrpcListSessionsResponse>
+  ): void;
+  ListPendingApprovals(
+    call: UnaryCall<GrpcListPendingApprovalsRequest, GrpcListPendingApprovalsResponse>,
+    callback: Callback<GrpcListPendingApprovalsResponse>
+  ): void;
+}
+
 export function makeAgentImpl(
   sessionManager: SessionManager,
   agentLoop: AgentLoop,
   config: AgentRuntimeConfig
-) {
+): AgentServiceHandlers {
   return {
     CreateSession(
       call: UnaryCall<GrpcCreateSessionRequest, GrpcCreateSessionResponse>,
@@ -112,7 +144,7 @@ export function makeAgentImpl(
       }
 
       // Run the agent loop asynchronously, streaming chunks back
-      void (async () => {
+      void (async (): Promise<void> => {
         try {
           for await (const chunk of agentLoop.run(ctx, req.content)) {
             call.write(chunk);

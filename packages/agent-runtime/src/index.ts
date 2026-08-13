@@ -11,7 +11,6 @@ export { GeminiProvider } from "./llm/gemini.provider.js";
 export { OllamaProvider } from "./llm/ollama.provider.js";
 export { startAgentGrpcServer } from "./grpc/server.js";
 export type { ProviderConfig } from "./grpc/agent.impl.js";
-import type { ProviderConfig } from "./grpc/agent.impl.js";
 export type { LLMProvider, LLMMessage, LLMTool, LLMStreamChunk } from "./llm/provider.interface.js";
 export type { SessionContext } from "./session/session-context.js";
 export type { PolicyDecisionResult } from "./tools/policy-engine.js";

@@ -55,16 +55,16 @@ function mockProvider(callSequences: LLMStreamChunk[][]): LLMProvider {
   return {
     provider_name: "mock",
     model_name: "mock-model",
-    async *streamCompletion() {
+    async *streamCompletion(): AsyncGenerator<LLMStreamChunk> {
       const chunks = callSequences[callCount++] ?? [];
       for (const chunk of chunks) {
         yield chunk;
       }
     },
-    async complete() {
+    async complete(): Promise<string> {
       return "";
     },
-    estimateCostUsd() {
+    estimateCostUsd(): number {
       return 0;
     },
   };
@@ -136,7 +136,7 @@ const FILE_READ_POLICY = [
   },
 ];
 
-async function collectChunks(gen: AsyncGenerator<unknown>) {
+async function collectChunks(gen: AsyncGenerator<unknown>): Promise<unknown[]> {
   const chunks = [];
   for await (const c of gen) chunks.push(c);
   return chunks;
