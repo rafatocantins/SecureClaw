@@ -35,6 +35,15 @@ export interface TaskResult {
   verifierPassed: boolean;
   retriesUsed: number;
   modelUsed: string;
+  /** Verifier feedback from the last failed check (if any). */
+  verifierFeedback?: string;
+}
+
+/** Feedback from the verifier for retry improvement. */
+export interface VerifierFeedback {
+  passed: boolean;
+  score: number;
+  summary: string;
 }
 
 /** Default orchestrator configuration. */
