@@ -720,3 +720,526 @@ describe("AgentLoop — harness patch injection", () => {
     }
   });
 });
+
+// ── Group P — Parallel tool execution ───────────────────────────────────
+
+describe("AgentLoop — parallel tool execution", () => {
+  let policy: ToolPolicyEngine;
+  let gate: ApprovalGate;
+
+  beforeEach(() => {
+    policy = new ToolPolicyEngine({ human_approval_required_for: [] }, [
+      ...FILE_READ_POLICY,
+      {
+        tool_id: "http_request",
+        allowed: true,
+        requires_approval: false,
+        sandbox_required: true,
+        memory_bytes: 64 * 1024 * 1024,
+        pids_limit: 16,
+        timeout_seconds: 10,
+        max_executions_per_session: 10,
+      },
+      {
+        tool_id: "shell_exec",
+        allowed: true,
+        requires_approval: false,
+        sandbox_required: true,
+        memory_bytes: 128 * 1024 * 1024,
+        pids_limit: 32,
+        timeout_seconds: 30,
+        max_executions_per_session: 10,
+      },
+    ]);
+    gate = new ApprovalGate();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Create a sandbox mock that records call timestamps with controllable delay. */
+  function makeTimingSandbox(delayMs = 50) {
+    const callTimes: Array<{ call_id: string; startMs: number; endMs: number }> = [];
+    return {
+      sandbox: {
+        runTool: vi.fn(async (params: { call_id: string }) => {
+          const startMs = Date.now();
+          await new Promise((r) => setTimeout(r, delayMs));
+          const endMs = Date.now();
+          callTimes.push({ call_id: params.call_id, startMs, endMs });
+          return { exit_code: 0, stdout: `output-${params.call_id}`, stderr: "", timed_out: false, oom_killed: false, duration_ms: endMs - startMs };
+        }),
+        checkRuntime: () => Promise.resolve({ gvisor_available: false, ready: true, error_message: "" }),
+        close: () => undefined,
+      } as unknown as SandboxGrpcClient,
+      callTimes,
+    };
+  }
+
+  it("P1: 3 independent tool calls execute concurrently (overlapping time windows)", async () => {
+    const { sandbox, callTimes } = makeTimingSandbox(80);
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "c1", tool_id: "file_read", input: { path: "/a" } } },
+        { type: "tool_call", tool_call: { call_id: "c2", tool_id: "http_request", input: { url: "http://x" } } },
+        { type: "tool_call", tool_call: { call_id: "c3", tool_id: "shell_exec", input: { command: "echo hi" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 30, output_tokens: 15 } },
+      ],
+      [
+        { type: "text", text: "All done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 20, output_tokens: 4 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), policy, gate, makeVault(), makeAudit(), sandbox);
+
+    await collectChunks(loop.run(ctx, "do three things in parallel"));
+
+    // All 3 calls should have been made
+    expect(sandbox.runTool).toHaveBeenCalledTimes(3);
+
+    // If sequential, the 3 calls would each take 80ms, total ~240ms
+    // With parallelism, total should be close to the max single delay (~80ms).
+    const times = callTimes;
+    expect(times.length).toBe(3);
+
+    // Sort by start time
+    times.sort((a, b) => a.startMs - b.startMs);
+
+    // Check overlapping execution: total duration should be significantly less
+    // than 3x the individual delay (which would indicate sequential execution)
+    const totalDuration = times[2]!.endMs - times[0]!.startMs;
+    expect(totalDuration).toBeLessThan(240); // less than 3 * 80ms
+
+    // Verify all 3 tool results are in ctx.messages
+    const toolMsgs = ctx.messages.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(3);
+  });
+
+  it("P2: approval gate remains per-tool — denied tool does not block approved tools", async () => {
+    const approvalPolicy = new ToolPolicyEngine(
+      { human_approval_required_for: ["shell_exec"] },
+      [
+        ...FILE_READ_POLICY,
+        {
+          tool_id: "http_request",
+          allowed: true, requires_approval: false, sandbox_required: true,
+          memory_bytes: 64 * 1024 * 1024, pids_limit: 16, timeout_seconds: 10, max_executions_per_session: 10,
+        },
+        {
+          tool_id: "shell_exec",
+          allowed: true, requires_approval: true, sandbox_required: true,
+          memory_bytes: 128 * 1024 * 1024, pids_limit: 32, timeout_seconds: 30, max_executions_per_session: 10,
+        },
+      ]
+    );
+
+    const sandbox = makeSandbox("ok");
+    const runToolSpy = vi.spyOn(sandbox, "runTool");
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "c1", tool_id: "file_read", input: { path: "/a" } } },
+        { type: "tool_call", tool_call: { call_id: "c2", tool_id: "http_request", input: { url: "http://x" } } },
+        { type: "tool_call", tool_call: { call_id: "c3", tool_id: "shell_exec", input: { command: "ls" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 30, output_tokens: 15 } },
+      ],
+      [
+        { type: "text", text: "Done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 20, output_tokens: 4 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), approvalPolicy, gate, makeVault(), makeAudit(), sandbox);
+
+    // Start the loop and deny shell_exec
+    const loopPromise = collectChunks(loop.run(ctx, "do three things"));
+    await new Promise((r) => setTimeout(r, 10));
+    gate.respond("c3", false); // deny the approval-required tool
+
+    await loopPromise;
+
+    // Only 2 tools should execute (c1 and c2), c3 was denied
+    expect(runToolSpy).toHaveBeenCalledTimes(2);
+    const executedCallIds = runToolSpy.mock.calls.map((c) => (c[0] as { call_id: string }).call_id);
+    expect(executedCallIds).toContain("c1");
+    expect(executedCallIds).toContain("c2");
+    expect(executedCallIds).not.toContain("c3");
+
+    // c3 should be in toolResults as denied
+    const toolMsgs = ctx.messages.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(3);
+    const denied = toolMsgs.find((m) => m.content === "[TOOL EXECUTION DENIED BY USER]");
+    expect(denied?.tool_call_id).toBe("c3");
+  });
+
+  it("P3: audit log captures all parallel executions with correct call_id ordering", async () => {
+    const audit = makeAudit();
+    const logSpy = vi.spyOn(audit, "logEvent");
+
+    const sandbox = makeSandbox("ok");
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "cA", tool_id: "file_read", input: { path: "/x" } } },
+        { type: "tool_call", tool_call: { call_id: "cB", tool_id: "http_request", input: { url: "http://y" } } },
+        { type: "tool_call", tool_call: { call_id: "cC", tool_id: "shell_exec", input: { command: "echo" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 30, output_tokens: 15 } },
+      ],
+      [
+        { type: "text", text: "Done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 20, output_tokens: 4 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), policy, gate, makeVault(), audit, sandbox);
+
+    await collectChunks(loop.run(ctx, "do three"));
+
+    // TOOL_CALL events for all 3 tools
+    const toolCallEvents = logSpy.mock.calls.filter(
+      (c) => c[0].event_type === "TOOL_CALL"
+    );
+    expect(toolCallEvents).toHaveLength(3);
+
+    // TOOL_RESULT events for all 3 tools (excluding injection detection results)
+    const toolResultEvents = logSpy.mock.calls.filter(
+      (c) => c[0].event_type === "TOOL_RESULT" &&
+        c[0].payload &&
+        (c[0].payload as { call_id?: string }).call_id !== undefined &&
+        !(c[0].payload as Record<string, unknown>).error?.toString().includes("DENIED")
+    );
+    expect(toolResultEvents).toHaveLength(3);
+
+    // All call_ids should be present
+    const callIds = toolCallEvents.map((c) => (c[0].payload as { call_id: string }).call_id).sort();
+    expect(callIds).toEqual(["cA", "cB", "cC"]);
+  });
+
+  it("P4: error in one tool does not prevent other tools from executing", async () => {
+    const sandbox = {
+      runTool: vi.fn(async (params: { call_id: string }) => {
+        if (params.call_id === "c2") {
+          throw new Error("Sandbox crash for c2");
+        }
+        return { exit_code: 0, stdout: `ok-${params.call_id}`, stderr: "", timed_out: false, oom_killed: false, duration_ms: 5 };
+      }),
+      checkRuntime: () => Promise.resolve({ gvisor_available: false, ready: true, error_message: "" }),
+      close: () => undefined,
+    } as unknown as SandboxGrpcClient;
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "c1", tool_id: "file_read", input: { path: "/a" } } },
+        { type: "tool_call", tool_call: { call_id: "c2", tool_id: "http_request", input: { url: "http://fail" } } },
+        { type: "tool_call", tool_call: { call_id: "c3", tool_id: "shell_exec", input: { command: "ok" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 30, output_tokens: 15 } },
+      ],
+      [
+        { type: "text", text: "Done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 20, output_tokens: 4 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), policy, gate, makeVault(), makeAudit(), sandbox);
+
+    await collectChunks(loop.run(ctx, "do three"));
+
+    // All 3 calls were attempted
+    expect(sandbox.runTool).toHaveBeenCalledTimes(3);
+
+    // c1 and c3 should succeed, c2 should fail
+    const toolMsgs = ctx.messages.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(3);
+
+    const successMsgs = toolMsgs.filter((m) => m.content?.startsWith("ok-"));
+    expect(successMsgs).toHaveLength(2);
+
+    const errorMsg = toolMsgs.find((m) => m.content?.startsWith("[SANDBOX ERROR"));
+    expect(errorMsg).toBeDefined();
+
+    // hadToolFailure should be set
+    expect(ctx.hadToolFailure).toBe(true);
+  });
+
+  it("P5: mixed policy-denied and approved tools — only approved tools execute", async () => {
+    // Policy allows file_read and http_request but NOT shell_exec
+    const mixedPolicy = new ToolPolicyEngine({ human_approval_required_for: [] }, [
+      ...FILE_READ_POLICY,
+      {
+        tool_id: "http_request",
+        allowed: true, requires_approval: false, sandbox_required: true,
+        memory_bytes: 64 * 1024 * 1024, pids_limit: 16, timeout_seconds: 10, max_executions_per_session: 10,
+      },
+    ]);
+
+    const sandbox = makeSandbox("ok");
+    const runToolSpy = vi.spyOn(sandbox, "runTool");
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "c1", tool_id: "file_read", input: { path: "/a" } } },
+        { type: "tool_call", tool_call: { call_id: "c2", tool_id: "shell_exec", input: { command: "bad" } } },
+        { type: "tool_call", tool_call: { call_id: "c3", tool_id: "http_request", input: { url: "http://x" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 30, output_tokens: 15 } },
+      ],
+      [
+        { type: "text", text: "Done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 20, output_tokens: 4 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), mixedPolicy, gate, makeVault(), makeAudit(), sandbox);
+
+    await collectChunks(loop.run(ctx, "do three"));
+
+    // Only the allowed tools should execute
+    expect(runToolSpy).toHaveBeenCalledTimes(2);
+    const executedCallIds = runToolSpy.mock.calls.map((c) => (c[0] as { call_id: string }).call_id);
+    expect(executedCallIds).toContain("c1");
+    expect(executedCallIds).toContain("c3");
+    expect(executedCallIds).not.toContain("c2");
+
+    // c2 should be marked as denied in tool results
+    const toolMsgs = ctx.messages.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(3);
+    const denied = toolMsgs.find((m) => m.content === "[TOOL DENIED BY POLICY]");
+    expect(denied?.tool_call_id).toBe("c2");
+  });
+
+  it("P6: tool_calls_executed count reflects only actually executed tools", async () => {
+    const approvalPolicy = new ToolPolicyEngine(
+      { human_approval_required_for: ["shell_exec"] },
+      [
+        ...FILE_READ_POLICY,
+        {
+          tool_id: "http_request",
+          allowed: true, requires_approval: false, sandbox_required: true,
+          memory_bytes: 64 * 1024 * 1024, pids_limit: 16, timeout_seconds: 10, max_executions_per_session: 10,
+        },
+        {
+          tool_id: "shell_exec",
+          allowed: true, requires_approval: true, sandbox_required: true,
+          memory_bytes: 128 * 1024 * 1024, pids_limit: 32, timeout_seconds: 30, max_executions_per_session: 10,
+        },
+      ]
+    );
+
+    const sandbox = makeSandbox("ok");
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "c1", tool_id: "file_read", input: { path: "/a" } } },
+        { type: "tool_call", tool_call: { call_id: "c2", tool_id: "shell_exec", input: { command: "nope" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 20, output_tokens: 10 } },
+      ],
+      [
+        { type: "text", text: "Done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 15, output_tokens: 5 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), approvalPolicy, gate, makeVault(), makeAudit(), sandbox);
+
+    const loopPromise = collectChunks(loop.run(ctx, "do two"));
+    await new Promise((r) => setTimeout(r, 10));
+    gate.respond("c2", false);
+
+    const chunks = await loopPromise;
+
+    // Check complete chunk for tool_calls_executed = 1 (only c1 executed)
+    const complete = chunks.find((c: unknown) => (c as { complete?: unknown }).complete);
+    expect(complete).toBeDefined();
+    if (complete) {
+      expect((complete as { complete: { tool_calls_executed: number } }).complete.tool_calls_executed).toBe(1);
+    }
+  });
+
+  it("P7: tool execution maintains correct message ordering (assistant before tool results)", async () => {
+    const sandbox = makeSandbox("ok");
+
+    const provider = mockProvider([
+      [
+        { type: "text", text: "Let me do three things." },
+        { type: "tool_call", tool_call: { call_id: "cx1", tool_id: "file_read", input: { path: "/a" } } },
+        { type: "tool_call", tool_call: { call_id: "cx2", tool_id: "http_request", input: { url: "http://x" } } },
+        { type: "tool_call", tool_call: { call_id: "cx3", tool_id: "shell_exec", input: { command: "echo" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 40, output_tokens: 20 } },
+      ],
+      [
+        { type: "text", text: "All complete." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 30, output_tokens: 10 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), policy, gate, makeVault(), makeAudit(), sandbox);
+
+    await collectChunks(loop.run(ctx, "parallel test"));
+
+    // Expected order: user → assistant+tool_calls → tool_results → assistant(final)
+    expect(ctx.messages[0]?.role).toBe("user");
+    expect(ctx.messages[1]?.role).toBe("assistant");
+    expect(ctx.messages[1]?.tool_calls).toHaveLength(3);
+    expect(ctx.messages[1]?.content).toBe("Let me do three things.");
+
+    // All tool results should follow the assistant message
+    const assistantIdx = ctx.messages.indexOf(ctx.messages[1]!);
+    const toolMsgs = ctx.messages.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(3);
+    for (const tm of toolMsgs) {
+      expect(ctx.messages.indexOf(tm)).toBeGreaterThan(assistantIdx);
+    }
+
+    // Final assistant message
+    const finalAssistant = ctx.messages[ctx.messages.length - 1];
+    expect(finalAssistant?.role).toBe("assistant");
+    expect(finalAssistant?.content).toBe("All complete.");
+  });
+
+  it("P8: yields tool_pending chunks for all tools during streaming, tool_result chunks after execution", async () => {
+    const sandbox = makeSandbox("ok");
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "p1", tool_id: "file_read", input: { path: "/a" } } },
+        { type: "tool_call", tool_call: { call_id: "p2", tool_id: "http_request", input: { url: "http://x" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 20, output_tokens: 10 } },
+      ],
+      [
+        { type: "text", text: "Done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 15, output_tokens: 5 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), policy, gate, makeVault(), makeAudit(), sandbox);
+
+    const chunks = await collectChunks(loop.run(ctx, "parallel test"));
+
+    // tool_pending chunks for both tools
+    const pendingChunks = chunks.filter((c: unknown) => (c as { tool_pending?: unknown }).tool_pending);
+    expect(pendingChunks).toHaveLength(2);
+
+    // tool_result chunks for both tools
+    const resultChunks = chunks.filter((c: unknown) => (c as { tool_result?: unknown }).tool_result);
+    expect(resultChunks).toHaveLength(2);
+
+    // All pending chunks should come before result chunks in the stream
+    const pendingIndices = pendingChunks.map((c) => chunks.indexOf(c));
+    const resultIndices = resultChunks.map((c) => chunks.indexOf(c));
+    const maxPending = Math.max(...pendingIndices);
+    const minResult = Math.min(...resultIndices);
+    expect(maxPending).toBeLessThan(minResult);
+  });
+
+  it("P9: approval_denied tool yields error chunk alongside parallel successes", async () => {
+    const approvalPolicy = new ToolPolicyEngine(
+      { human_approval_required_for: ["file_read"] },
+      [
+        ...FILE_READ_POLICY,
+        {
+          tool_id: "http_request",
+          allowed: true, requires_approval: false, sandbox_required: true,
+          memory_bytes: 64 * 1024 * 1024, pids_limit: 16, timeout_seconds: 10, max_executions_per_session: 10,
+        },
+      ]
+    );
+
+    const sandbox = makeSandbox("ok");
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "a1", tool_id: "file_read", input: { path: "/s" } } },
+        { type: "tool_call", tool_call: { call_id: "a2", tool_id: "http_request", input: { url: "http://x" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 20, output_tokens: 10 } },
+      ],
+      [
+        { type: "text", text: "Partial success." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 15, output_tokens: 5 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), approvalPolicy, gate, makeVault(), makeAudit(), sandbox);
+
+    const loopPromise = collectChunks(loop.run(ctx, "do two"));
+    await new Promise((r) => setTimeout(r, 10));
+    gate.respond("a1", false); // deny file_read
+
+    const chunks = await loopPromise;
+
+    // Should yield an APPROVAL_DENIED error chunk
+    const errorChunks = chunks.filter((c: unknown) => (c as { error?: unknown }).error);
+    const approvalDenied = errorChunks.find(
+      (c: unknown) => (c as { error: { code: string } }).error?.code === "APPROVAL_DENIED"
+    );
+    expect(approvalDenied).toBeDefined();
+
+    // a2 should still succeed as a tool_result
+    const resultChunks = chunks.filter((c: unknown) => (c as { tool_result?: unknown }).tool_result);
+    expect(resultChunks.length).toBeGreaterThanOrEqual(1);
+    const successResult = resultChunks.find(
+      (c: unknown) => (c as { tool_result: { call_id: string } }).tool_result?.call_id === "a2"
+    );
+    expect(successResult).toBeDefined();
+  });
+
+  it("P10: 5+ tool calls all execute in parallel batch", async () => {
+    // Create a policy that allows all tools with separate IDs
+    const bigPolicy = new ToolPolicyEngine({ human_approval_required_for: [] }, [
+      ...FILE_READ_POLICY,
+      {
+        tool_id: "http_request", allowed: true, requires_approval: false, sandbox_required: true,
+        memory_bytes: 64 * 1024 * 1024, pids_limit: 16, timeout_seconds: 10, max_executions_per_session: 20,
+      },
+      {
+        tool_id: "shell_exec", allowed: true, requires_approval: false, sandbox_required: true,
+        memory_bytes: 128 * 1024 * 1024, pids_limit: 32, timeout_seconds: 30, max_executions_per_session: 20,
+      },
+    ]);
+
+    const { sandbox, callTimes } = makeTimingSandbox(40);
+
+    const provider = mockProvider([
+      [
+        { type: "tool_call", tool_call: { call_id: "t1", tool_id: "file_read", input: { path: "/1" } } },
+        { type: "tool_call", tool_call: { call_id: "t2", tool_id: "http_request", input: { url: "http://2" } } },
+        { type: "tool_call", tool_call: { call_id: "t3", tool_id: "shell_exec", input: { command: "3" } } },
+        { type: "tool_call", tool_call: { call_id: "t4", tool_id: "file_read", input: { path: "/4" } } },
+        { type: "tool_call", tool_call: { call_id: "t5", tool_id: "http_request", input: { url: "http://5" } } },
+        { type: "finish", finish_reason: "tool_use", usage: { input_tokens: 50, output_tokens: 25 } },
+      ],
+      [
+        { type: "text", text: "All 5 done." },
+        { type: "finish", finish_reason: "end_turn", usage: { input_tokens: 30, output_tokens: 10 } },
+      ],
+    ]);
+
+    const ctx = makeCtx({ provider });
+    const loop = new AgentLoop(makeSanitizer(), bigPolicy, gate, makeVault(), makeAudit(), sandbox);
+
+    await collectChunks(loop.run(ctx, "five things"));
+
+    expect(sandbox.runTool).toHaveBeenCalledTimes(5);
+
+    // Verify parallelism: total duration should be close to single delay
+    const times = callTimes;
+    times.sort((a, b) => a.startMs - b.startMs);
+    const totalDuration = times[4]!.endMs - times[0]!.startMs;
+    // Sequential would be 5 * 40ms = 200ms. Parallel should be < 3x single delay.
+    expect(totalDuration).toBeLessThan(150);
+
+    // All 5 tool results in messages
+    const toolMsgs = ctx.messages.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(5);
+  });
+});
