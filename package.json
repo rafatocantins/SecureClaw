@@ -45,8 +45,7 @@
       "esbuild",
       "protobufjs",
       "ssh2",
-      "cpu-features",
-      "keytar"
+      "cpu-features"
     ]
   }
 }

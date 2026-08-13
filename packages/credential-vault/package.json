@@ -17,9 +17,11 @@
     "@grpc/proto-loader": "^0.7.0",
     "@tessera/shared": "workspace:*",
     "better-sqlite3": "^11.0.0",
-    "keytar": "^7.9.0",
     "tar-stream": "^3.1.8",
     "zod": "^3.24.0"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
