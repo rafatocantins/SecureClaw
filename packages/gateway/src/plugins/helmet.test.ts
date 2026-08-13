@@ -7,10 +7,11 @@
  */
 import { describe, it, expect } from "vitest";
 import Fastify from "fastify";
+import type { FastifyInstance } from "fastify";
 import fastifyHelmet from "@fastify/helmet";
 import { healthRoute } from "../routes/health.route.js";
 
-async function buildMinimalApp() {
+async function buildMinimalApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(fastifyHelmet, {
     contentSecurityPolicy: {

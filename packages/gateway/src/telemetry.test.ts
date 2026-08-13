@@ -10,32 +10,40 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
+import type { FastifyInstance } from "fastify";
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { registerOtelHooks } from "./telemetry.js";
 
 // ── Span mock helpers ────────────────────────────────────────────────────────
 
-function makeMockSpan() {
-  const span = {
+interface MockSpan {
+  attributes: Record<string, unknown>;
+  status: { code: SpanStatusCode; message?: string };
+  ended: boolean;
+  setAttributes: (attrs: Record<string, unknown>) => MockSpan;
+  setStatus: (s: { code: SpanStatusCode; message?: string }) => MockSpan;
+  end: () => void;
+}
+
+function makeMockSpan(): MockSpan {
+  const span: MockSpan = {
     attributes: {} as Record<string, unknown>,
     status: { code: SpanStatusCode.UNSET } as { code: SpanStatusCode; message?: string },
     ended: false,
-    setAttributes(attrs: Record<string, unknown>) {
+    setAttributes(attrs: Record<string, unknown>): MockSpan {
       Object.assign(span.attributes, attrs);
       return span;
     },
-    setStatus(s: { code: SpanStatusCode; message?: string }) {
+    setStatus(s: { code: SpanStatusCode; message?: string }): MockSpan {
       span.status = s;
       return span;
     },
-    end() {
+    end(): void {
       span.ended = true;
     },
   };
   return span;
 }
-
-type MockSpan = ReturnType<typeof makeMockSpan>;
 
 // Track spans created by each call to startSpan
 const spansCreated: Array<{ name: string; options: { kind?: SpanKind }; span: MockSpan }> = [];
@@ -45,8 +53,10 @@ vi.mock("@opentelemetry/api", async (importOriginal) => {
   return {
     ...original,
     trace: {
-      getTracer: () => ({
-        startSpan: (name: string, options: { kind?: SpanKind } = {}) => {
+      getTracer: (): {
+        startSpan: (name: string, options: { kind?: SpanKind }) => MockSpan;
+      } => ({
+        startSpan: (name: string, options: { kind?: SpanKind } = {}): MockSpan => {
           const span = makeMockSpan();
           spansCreated.push({ name, options, span });
           return span;
@@ -58,7 +68,7 @@ vi.mock("@opentelemetry/api", async (importOriginal) => {
 
 // ── Minimal Fastify app with OTel hooks ──────────────────────────────────────
 
-function buildTracedApp() {
+function buildTracedApp(): FastifyInstance {
   const app = Fastify({ logger: false });
 
   // Use the real production hooks (imported from telemetry.ts)

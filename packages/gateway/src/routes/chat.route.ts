@@ -133,7 +133,7 @@ export async function chatRoute(
           }
 
           // Cost cap check + gRPC forwarding — all async, captured in a single IIFE
-          void (async () => {
+          void (async (): Promise<void> => {
             // Gateway-level cost cap pre-flight check.
             // Blocks the message before it reaches agent-runtime if the daily cap is exceeded.
             // Fail-open if the audit service is unreachable (do not block the user).

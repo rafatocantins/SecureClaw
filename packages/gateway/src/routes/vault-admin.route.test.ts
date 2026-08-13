@@ -4,20 +4,28 @@
  * Security checks: auth required, body validation, no key material in responses,
  * audit events emitted.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import Fastify from "fastify";
+import type { FastifyInstance } from "fastify";
 import fastifyRateLimit from "@fastify/rate-limit";
 import { setGatewaySecret, generateGatewayToken } from "../plugins/auth.plugin.js";
 import { vaultAdminRoute } from "./vault-admin.route.js";
 
 const SECRET = "test-vault-admin-secret-abc123";
-const VALID_TOKEN = () => generateGatewayToken("admin-user", SECRET, "admin");
-const USER_TOKEN = () => generateGatewayToken("regular-user", SECRET, "user");
+const VALID_TOKEN = (): string => generateGatewayToken("admin-user", SECRET, "admin");
+const USER_TOKEN = (): string => generateGatewayToken("regular-user", SECRET, "user");
 
 // Mock vault client
 function makeMockVaultClient(overrides: {
   rotateKey?: (old: string, nw: string) => Promise<{ rotated_count: number }>;
-} = {}) {
+} = {}): {
+  listSecretRefs: Mock;
+  setSecret: Mock;
+  deleteSecret: Mock;
+  getSecretRef: Mock;
+  close: Mock;
+  rotateKey: (old: string, nw: string) => Promise<{ rotated_count: number }>;
+} {
   return {
     listSecretRefs: vi.fn(),
     setSecret: vi.fn(),
@@ -29,7 +37,17 @@ function makeMockVaultClient(overrides: {
 }
 
 // Mock audit client
-function makeMockAuditClient() {
+function makeMockAuditClient(): {
+  logEvent: Mock;
+  queryEvents: Mock;
+  getCostSummary: Mock;
+  getTeamCostSummary: Mock;
+  getTeamQuota: Mock;
+  setTeamQuota: Mock;
+  checkQuotaExceeded: Mock;
+  getComplianceReport: Mock;
+  close: Mock;
+} {
   return {
     logEvent: vi.fn(async () => ({ event_id: 1, success: true, alerts_triggered: [] })),
     queryEvents: vi.fn(),
@@ -46,7 +64,11 @@ function makeMockAuditClient() {
 async function buildApp(opts: {
   vaultClient?: ReturnType<typeof makeMockVaultClient>;
   auditClient?: ReturnType<typeof makeMockAuditClient>;
-} = {}) {
+} = {}): Promise<{
+  app: FastifyInstance;
+  vaultClient: ReturnType<typeof makeMockVaultClient>;
+  auditClient: ReturnType<typeof makeMockAuditClient>;
+}> {
   const app = Fastify({ logger: false });
   await app.register(fastifyRateLimit, { max: 100, timeWindow: "1 minute" });
 
