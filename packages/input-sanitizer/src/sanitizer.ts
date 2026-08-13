@@ -318,7 +318,7 @@ export class SanitizerService {
    * Quick injection check — throws InjectionDetectedError on critical matches.
    * Use for fast-path blocking of clearly malicious inputs.
    */
-  assertNotInjection(content: string, context: string): void {
+  assertNotInjection(content: string): void {
     const result = scanForInjection(content);
     if (
       result.is_suspicious &&
