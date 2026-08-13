@@ -16,7 +16,6 @@ import type {
   VerificationResult,
   VerificationCheck,
 } from "./types.js";
-import { VERIFIER_PROMPTS } from "./verifier-prompts.js";
 
 // ── Injection / dangerous pattern detection ─────────────────────────────
 

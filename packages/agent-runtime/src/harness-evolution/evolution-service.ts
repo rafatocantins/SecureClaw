@@ -20,7 +20,6 @@ import type { SessionAnalyzer, PatternSummary } from "./session-analyzer.js";
 import type { HarnessPatchGenerator } from "./patch-generator.js";
 import type {
   HarnessPatch,
-  GeneratedPatch,
   PatchValidationResult,
   PendingPatch,
 } from "./types.js";

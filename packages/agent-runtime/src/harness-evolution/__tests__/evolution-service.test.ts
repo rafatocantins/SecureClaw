@@ -22,8 +22,6 @@ import type {
   AuditSession,
   AuditEvent,
   HarnessPatch,
-  GeneratedPatch,
-  ConfidenceScore,
 } from "../types.js";
 import { SessionAnalyzer } from "../session-analyzer.js";
 import { HarnessPatchGenerator } from "../patch-generator.js";
@@ -693,21 +691,6 @@ describe("HarnessEvolutionService.finalizeSession()", () => {
 
 describe("HarnessEvolutionService pending patches", () => {
   let service: HarnessEvolutionService;
-
-  function makePatch(overrides: Partial<HarnessPatch> = {}): HarnessPatch {
-    return {
-      id: overrides.id ?? "patch-test-1",
-      type: overrides.type ?? "tool_rule",
-      target: overrides.target ?? "tool_allowlist",
-      proposedChange:
-        overrides.proposedChange ??
-        "Add rate limiting to shell_exec tool",
-      rationale: overrides.rationale ?? "Test rationale",
-      confidence: overrides.confidence ?? 0.5,
-      sourcePatterns: overrides.sourcePatterns ?? ["tool_failure"],
-      generatedAt: overrides.generatedAt ?? new Date(),
-    };
-  }
 
   beforeEach(() => {
     const auditService = mockAuditService([], new Map());

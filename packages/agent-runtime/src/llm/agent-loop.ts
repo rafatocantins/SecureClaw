@@ -270,7 +270,7 @@ export class AgentLoop {
 
     // Configurable turn cap — prevents runaway agents from burning API budget.
     // Each "turn" is one round-trip to the LLM (streaming response).
-    const maxTurns = (() => {
+    const maxTurns = ((): number => {
       const val = process.env["AGENT_MAX_TURNS_PER_SESSION"];
       if (val) {
         const n = parseInt(val, 10);
