@@ -176,7 +176,7 @@ export class AuditService {
       args.push(params.to_unix_ms);
     }
     if (params.event_types && params.event_types.length > 0) {
-      sql += ` AND event_type IN (${params.event_types.map(() => "?").join(",")})`;
+      sql += " AND event_type IN (" + params.event_types.map(() => "?").join(",") + ")";
       args.push(...params.event_types);
     }
 
