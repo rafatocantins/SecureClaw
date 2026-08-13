@@ -341,6 +341,7 @@ jobs:
         env:
           GATEWAY_HMAC_SECRET: integration-test-secret
           VAULT_MASTER_KEY: integration-test-vault-key
+          TESSERA_RUN_INTEGRATION: "1"
 
       - name: Dump container logs on failure
         if: failure()
