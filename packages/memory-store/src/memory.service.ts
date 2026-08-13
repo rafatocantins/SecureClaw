@@ -10,7 +10,7 @@
  */
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import {
@@ -20,7 +20,6 @@ import {
 import { sanitizeFts5Query } from "./fts5-sanitizer.js";
 
 // Synchronous require helper — used to optionally load sqlite-vec at runtime.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const _require = createRequire(import.meta.url);
 
 export type LessonCategory = "mistake" | "preference" | "procedure" | "fact";

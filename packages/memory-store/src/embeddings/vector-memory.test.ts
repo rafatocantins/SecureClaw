@@ -40,7 +40,7 @@ function makeMockClient(vectors: (Float32Array | null)[], dim = 4): EmbeddingCli
   const client = new EmbeddingClient(cfg);
   let idx = 0;
   // Override on instance directly to avoid prototype lookup issues
-  client.embed = async (_text: string) => {
+  client.embed = async (_text: string): Promise<Float32Array | null> => {
     const v = vectors[idx] ?? null;
     idx++;
     return v;

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { initSchema } from "./db/schema.js";
 import { MemoryService } from "./memory.service.js";
