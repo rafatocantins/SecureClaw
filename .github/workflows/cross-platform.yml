@@ -73,6 +73,6 @@ jobs:
       - name: Run unit tests
         if: matrix.run-tests
         shell: bash
-        run: pnpm --filter '!integration' -r test
+        run: pnpm --filter '!@tessera/integration' -r test
         env:
           CI: "true"
