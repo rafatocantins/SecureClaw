@@ -251,9 +251,6 @@ importers:
       better-sqlite3:
         specifier: ^11.0.0
         version: 11.10.0
-      keytar:
-        specifier: ^7.9.0
-        version: 7.9.0
       tar-stream:
         specifier: ^3.1.8
         version: 3.1.8
@@ -279,6 +276,10 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@25.2.3)
+    optionalDependencies:
+      keytar:
+        specifier: ^7.9.0
+        version: 7.9.0
 
   packages/gateway:
     dependencies:
