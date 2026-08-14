@@ -34,7 +34,6 @@ import type { SkillsGrpcClient } from "../grpc/clients/skills.client.js";
 import type { MemoryGrpcClient, StoredMemoryMessage } from "../grpc/clients/memory.client.js";
 import { LessonExtractor } from "../lessons/lesson-extractor.js";
 import {
-  prepareToolCalls,
   executeToolCallsParallel,
   type PreparedToolCall,
   type PendingToolCall,
@@ -114,14 +113,6 @@ const TOOL_DEFINITIONS: LLMTool[] = [
     },
   },
 ];
-
-// Docker images for each tool (pre-approved images only)
-const TOOL_IMAGES: Record<string, string> = {
-  shell_exec: "tessera/shell-exec:latest",
-  http_request: "tessera/http-request:latest",
-  file_read: "tessera/file-read:latest",
-  file_write: "tessera/file-write:latest",
-};
 
 /** Maps tool_id → route info for skill-backed tools */
 // SkillToolRoute is now exported from ./tool-executor.js

@@ -759,7 +759,7 @@ describe("AgentLoop — parallel tool execution", () => {
   });
 
   /** Create a sandbox mock that records call timestamps with controllable delay. */
-  function makeTimingSandbox(delayMs = 50) {
+  function makeTimingSandbox(delayMs = 50): { sandbox: SandboxGrpcClient; callTimes: Array<{ call_id: string; startMs: number; endMs: number }> } {
     const callTimes: Array<{ call_id: string; startMs: number; endMs: number }> = [];
     return {
       sandbox: {
