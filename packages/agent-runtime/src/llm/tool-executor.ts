@@ -6,7 +6,7 @@
  * Approval decisions are respected per-tool (no batch auto-approve).
  * Audit events are emitted with correct call_id ordering.
  */
-import { context, SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { Context, Tracer } from "@opentelemetry/api";
 import type { SanitizerService } from "@tessera/input-sanitizer";
 import type { SessionContext } from "../session/session-context.js";
