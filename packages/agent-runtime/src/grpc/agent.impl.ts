@@ -7,6 +7,7 @@
 import type * as grpc from "@grpc/grpc-js";
 import type { SessionManager } from "../session/session-manager.js";
 import type { AgentLoop } from "../llm/agent-loop.js";
+import type { HarnessEvolutionService } from "../harness-evolution/evolution-service.js";
 import { createProvider } from "../llm/provider-factory.js";
 import type { AgentRuntimeConfig } from "../config.js";
 import { getProviderSecrets } from "../config.js";
@@ -25,6 +26,12 @@ import type {
   GrpcListSessionsResponse,
   GrpcListPendingApprovalsRequest,
   GrpcListPendingApprovalsResponse,
+  GrpcListHarnessPatchesRequest,
+  GrpcListHarnessPatchesResponse,
+  GrpcApplyHarnessPatchRequest,
+  GrpcApplyHarnessPatchResponse,
+  GrpcRunHarnessEvolutionRequest,
+  GrpcRunHarnessEvolutionResponse,
 } from "@tessera/shared";
 
 type UnaryCall<Req, Res> = grpc.ServerUnaryCall<Req, Res>;
@@ -72,12 +79,25 @@ interface AgentServiceHandlers {
     call: UnaryCall<GrpcListPendingApprovalsRequest, GrpcListPendingApprovalsResponse>,
     callback: Callback<GrpcListPendingApprovalsResponse>
   ): void;
+  ListHarnessPatches(
+    call: UnaryCall<GrpcListHarnessPatchesRequest, GrpcListHarnessPatchesResponse>,
+    callback: Callback<GrpcListHarnessPatchesResponse>
+  ): void;
+  ApplyHarnessPatch(
+    call: UnaryCall<GrpcApplyHarnessPatchRequest, GrpcApplyHarnessPatchResponse>,
+    callback: Callback<GrpcApplyHarnessPatchResponse>
+  ): void;
+  RunHarnessEvolution(
+    call: UnaryCall<GrpcRunHarnessEvolutionRequest, GrpcRunHarnessEvolutionResponse>,
+    callback: Callback<GrpcRunHarnessEvolutionResponse>
+  ): void;
 }
 
 export function makeAgentImpl(
   sessionManager: SessionManager,
   agentLoop: AgentLoop,
-  config: AgentRuntimeConfig
+  config: AgentRuntimeConfig,
+  harnessEvolution: HarnessEvolutionService
 ): AgentServiceHandlers {
   return {
     CreateSession(
@@ -261,5 +281,108 @@ export function makeAgentImpl(
         callback(null, { approvals: [] });
       }
     },
+
+    ListHarnessPatches(
+      _call: UnaryCall<GrpcListHarnessPatchesRequest, GrpcListHarnessPatchesResponse>,
+      callback: Callback<GrpcListHarnessPatchesResponse>
+    ): void {
+      try {
+        const patches = harnessEvolution.getStoredPatches().map((p) => ({
+          id: p.id,
+          type: p.type,
+          target: p.target,
+          proposed_change: p.proposedChange,
+          confidence: p.confidence,
+          recommendation: recommendationFor(p.confidence),
+          applied: p.applied,
+          applied_at: p.applied ? (p.appliedAt ?? 0) : 0,
+        }));
+        callback(null, { patches });
+      } catch (err) {
+        process.stderr.write(
+          `[agent.impl] ListHarnessPatches error: ${err instanceof Error ? err.message : String(err)}\n`
+        );
+        callback(null, { patches: [] });
+      }
+    },
+
+    ApplyHarnessPatch(
+      call: UnaryCall<GrpcApplyHarnessPatchRequest, GrpcApplyHarnessPatchResponse>,
+      callback: Callback<GrpcApplyHarnessPatchResponse>
+    ): void {
+      const patchId = call.request.patch_id;
+      void (async (): Promise<void> => {
+        try {
+          const patch = harnessEvolution.getStoredPatches().find((p) => p.id === patchId);
+          if (patch === undefined) {
+            callback(null, {
+              id: patchId,
+              applied: false,
+              reason: `Patch '${patchId}' not found`,
+            });
+            return;
+          }
+          const result = await harnessEvolution.applyPatch(patch);
+          callback(null, {
+            id: result.id,
+            applied: result.applied,
+            reason: result.reason,
+          });
+        } catch (err) {
+          process.stderr.write(
+            `[agent.impl] ApplyHarnessPatch error: ${err instanceof Error ? err.message : String(err)}\n`
+          );
+          callback(null, {
+            id: patchId,
+            applied: false,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
+    },
+
+    RunHarnessEvolution(
+      call: UnaryCall<GrpcRunHarnessEvolutionRequest, GrpcRunHarnessEvolutionResponse>,
+      callback: Callback<GrpcRunHarnessEvolutionResponse>
+    ): void {
+      const limit = call.request.limit > 0 ? call.request.limit : 50;
+      void (async (): Promise<void> => {
+        try {
+          const result = await harnessEvolution.evolve(limit);
+          callback(null, {
+            sessions_analyzed: result.sessionsAnalyzed,
+            patches_generated: result.patchesGenerated,
+            patches_applied: result.patchesApplied,
+            patches_rejected: result.patchesRejected,
+            summary: result.summary.map((s) => ({
+              pattern_type: s.patternType,
+              total_occurrences: s.totalOccurrences,
+              affected_sessions: s.affectedSessions,
+            })),
+          });
+        } catch (err) {
+          process.stderr.write(
+            `[agent.impl] RunHarnessEvolution error: ${err instanceof Error ? err.message : String(err)}\n`
+          );
+          callback(null, {
+            sessions_analyzed: 0,
+            patches_generated: 0,
+            patches_applied: 0,
+            patches_rejected: 0,
+            summary: [],
+          });
+        }
+      })();
+    },
   };
+}
+
+/**
+ * Maps a patch confidence score to a human recommendation, mirroring the
+ * thresholds used by HarnessEvolutionService (apply ≥ 0.7, review ≥ 0.3).
+ */
+function recommendationFor(confidence: number): string {
+  if (confidence >= 0.7) return "apply";
+  if (confidence >= 0.3) return "review";
+  return "reject";
 }

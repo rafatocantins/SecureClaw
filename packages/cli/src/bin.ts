@@ -31,6 +31,7 @@ import { vaultCommand } from "./commands/vault.js";
 import { initCommand } from "./commands/init.js";
 import { backupCommand } from "./commands/backup.js";
 import { memoryCommand } from "./commands/memory.js";
+import { harnessCommand } from "./commands/harness.js";
 
 const program = new Command();
 
@@ -47,5 +48,6 @@ program.addCommand(skillCommand());
 program.addCommand(vaultCommand());
 program.addCommand(backupCommand());
 program.addCommand(memoryCommand());
+program.addCommand(harnessCommand());
 
 program.parse();

@@ -2,7 +2,9 @@
  * agent-impl.test.ts — Tests for makeAgentImpl with ProviderConfig injection.
  *
  * Verifies that makeAgentImpl reads provider configuration via the
- * ProviderConfig interface instead of reaching into process.env directly.
+ * ProviderConfig interface instead of reaching into process.env directly,
+ * and that the Harness Self-Evolution RPCs delegate correctly to the
+ * HarnessEvolutionService.
  */
 import { describe, it, expect, vi } from "vitest";
 import { makeAgentImpl } from "../agent.impl.js";
@@ -10,7 +12,13 @@ import type { AgentRuntimeConfig } from "../../config.js";
 import type { SessionManager } from "../../session/session-manager.js";
 import type { AgentLoop } from "../../llm/agent-loop.js";
 import type { LLMProvider } from "../../llm/provider.interface.js";
-import type { GrpcCreateSessionResponse } from "@tessera/shared";
+import type { HarnessEvolutionService } from "../../harness-evolution/evolution-service.js";
+import type {
+  GrpcCreateSessionResponse,
+  GrpcListHarnessPatchesResponse,
+  GrpcApplyHarnessPatchResponse,
+  GrpcRunHarnessEvolutionResponse,
+} from "@tessera/shared";
 import type * as grpc from "@grpc/grpc-js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -56,6 +64,25 @@ function makeAgentLoop(): AgentLoop {
   } as unknown as AgentLoop;
 }
 
+function makeHarnessEvolution(
+  overrides: Record<string, unknown> = {}
+): HarnessEvolutionService {
+  return {
+    getStoredPatches: vi.fn().mockReturnValue([]),
+    applyPatch: vi
+      .fn()
+      .mockResolvedValue({ id: "", applied: false, reason: "not found" }),
+    evolve: vi.fn().mockResolvedValue({
+      sessionsAnalyzed: 0,
+      patchesGenerated: 0,
+      patchesApplied: 0,
+      patchesRejected: 0,
+      summary: [],
+    }),
+    ...overrides,
+  } as unknown as HarnessEvolutionService;
+}
+
 type CreateSessionCallback = grpc.sendUnaryData<GrpcCreateSessionResponse>;
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -69,7 +96,7 @@ describe("makeAgentImpl — ProviderConfig injection", () => {
     const sessionManager = makeSessionManager();
     const agentLoop = makeAgentLoop();
 
-    const impl = makeAgentImpl(sessionManager, agentLoop, config);
+    const impl = makeAgentImpl(sessionManager, agentLoop, config, makeHarnessEvolution());
 
     const callback = vi.fn() as unknown as CreateSessionCallback;
     const call = {
@@ -91,7 +118,7 @@ describe("makeAgentImpl — ProviderConfig injection", () => {
     const sessionManager = makeSessionManager();
     const agentLoop = makeAgentLoop();
 
-    const impl = makeAgentImpl(sessionManager, agentLoop, config);
+    const impl = makeAgentImpl(sessionManager, agentLoop, config, makeHarnessEvolution());
 
     const callback = vi.fn() as unknown as CreateSessionCallback;
     const call = {
@@ -112,7 +139,7 @@ describe("makeAgentImpl — ProviderConfig injection", () => {
     const sessionManager = makeSessionManager();
     const agentLoop = makeAgentLoop();
 
-    const impl = makeAgentImpl(sessionManager, agentLoop, config);
+    const impl = makeAgentImpl(sessionManager, agentLoop, config, makeHarnessEvolution());
 
     const callback = vi.fn() as unknown as CreateSessionCallback;
     const call = {
@@ -132,7 +159,7 @@ describe("makeAgentImpl — ProviderConfig injection", () => {
     const sessionManager = makeSessionManager();
     const agentLoop = makeAgentLoop();
 
-    const impl = makeAgentImpl(sessionManager, agentLoop, config);
+    const impl = makeAgentImpl(sessionManager, agentLoop, config, makeHarnessEvolution());
 
     const callback = vi.fn() as unknown as CreateSessionCallback;
     const call = {
@@ -145,5 +172,162 @@ describe("makeAgentImpl — ProviderConfig injection", () => {
     const resp = callback.mock.calls[0]?.[1] as GrpcCreateSessionResponse | undefined;
     expect(resp?.success).toBe(false);
     expect(resp?.error_message).toContain("Failed to create provider");
+  });
+});
+
+describe("makeAgentImpl — Harness Self-Evolution RPCs", () => {
+  it("ListHarnessPatches: returns stored patches mapped to wire shape", () => {
+    const harness = makeHarnessEvolution({
+      getStoredPatches: vi.fn().mockReturnValue([
+        {
+          id: "patch-1",
+          type: "system_instruction",
+          target: "system-prompt",
+          proposedChange: "add guard clause",
+          confidence: 0.85,
+          applied: false,
+        },
+      ]),
+    });
+    const impl = makeAgentImpl(
+      makeSessionManager(),
+      makeAgentLoop(),
+      makeConfig(),
+      harness
+    );
+
+    const callback = vi.fn();
+    impl.ListHarnessPatches({ request: {} } as never, callback as never);
+
+    const resp = callback.mock.calls[0]?.[1] as GrpcListHarnessPatchesResponse;
+    expect(resp.patches).toHaveLength(1);
+    expect(resp.patches[0]?.id).toBe("patch-1");
+    expect(resp.patches[0]?.proposed_change).toBe("add guard clause");
+    expect(resp.patches[0]?.recommendation).toBe("apply");
+    expect(resp.patches[0]?.applied).toBe(false);
+  });
+
+  it("ListHarnessPatches: returns empty list when nothing stored", () => {
+    const impl = makeAgentImpl(
+      makeSessionManager(),
+      makeAgentLoop(),
+      makeConfig(),
+      makeHarnessEvolution()
+    );
+
+    const callback = vi.fn();
+    impl.ListHarnessPatches({ request: {} } as never, callback as never);
+
+    const resp = callback.mock.calls[0]?.[1] as GrpcListHarnessPatchesResponse;
+    expect(resp.patches).toHaveLength(0);
+  });
+
+  it("ApplyHarnessPatch: delegates to applyPatch and returns result", async () => {
+    const harness = makeHarnessEvolution({
+      getStoredPatches: vi.fn().mockReturnValue([
+        {
+          id: "patch-1",
+          type: "system_instruction",
+          target: "t",
+          proposedChange: "x",
+          confidence: 0.9,
+          applied: false,
+        },
+      ]),
+      applyPatch: vi
+        .fn()
+        .mockResolvedValue({ id: "patch-1", applied: true, reason: "ok" }),
+    });
+    const impl = makeAgentImpl(
+      makeSessionManager(),
+      makeAgentLoop(),
+      makeConfig(),
+      harness
+    );
+
+    const callback = vi.fn();
+    impl.ApplyHarnessPatch(
+      { request: { patch_id: "patch-1" } } as never,
+      callback as never
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(harness.applyPatch).toHaveBeenCalled();
+    const resp = callback.mock.calls[0]?.[1] as GrpcApplyHarnessPatchResponse;
+    expect(resp.applied).toBe(true);
+    expect(resp.id).toBe("patch-1");
+  });
+
+  it("ApplyHarnessPatch: returns not-found when patch id is unknown", async () => {
+    const impl = makeAgentImpl(
+      makeSessionManager(),
+      makeAgentLoop(),
+      makeConfig(),
+      makeHarnessEvolution()
+    );
+
+    const callback = vi.fn();
+    impl.ApplyHarnessPatch(
+      { request: { patch_id: "missing" } } as never,
+      callback as never
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    const resp = callback.mock.calls[0]?.[1] as GrpcApplyHarnessPatchResponse;
+    expect(resp.applied).toBe(false);
+    expect(resp.reason).toContain("not found");
+  });
+
+  it("RunHarnessEvolution: returns evolve result mapped to wire shape", async () => {
+    const harness = makeHarnessEvolution({
+      evolve: vi.fn().mockResolvedValue({
+        sessionsAnalyzed: 3,
+        patchesGenerated: 2,
+        patchesApplied: 1,
+        patchesRejected: 1,
+        summary: [
+          { patternType: "tool_failure", totalOccurrences: 4, affectedSessions: 2 },
+        ],
+      }),
+    });
+    const impl = makeAgentImpl(
+      makeSessionManager(),
+      makeAgentLoop(),
+      makeConfig(),
+      harness
+    );
+
+    const callback = vi.fn();
+    impl.RunHarnessEvolution({ request: { limit: 10 } } as never, callback as never);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const resp = callback.mock.calls[0]?.[1] as GrpcRunHarnessEvolutionResponse;
+    expect(resp.sessions_analyzed).toBe(3);
+    expect(resp.patches_generated).toBe(2);
+    expect(resp.patches_applied).toBe(1);
+    expect(resp.patches_rejected).toBe(1);
+    expect(resp.summary[0]?.pattern_type).toBe("tool_failure");
+    expect(resp.summary[0]?.total_occurrences).toBe(4);
+  });
+
+  it("RunHarnessEvolution: returns zeros on evolve error", async () => {
+    const harness = makeHarnessEvolution({
+      evolve: vi.fn().mockRejectedValue(new Error("boom")),
+    });
+    const impl = makeAgentImpl(
+      makeSessionManager(),
+      makeAgentLoop(),
+      makeConfig(),
+      harness
+    );
+
+    const callback = vi.fn();
+    impl.RunHarnessEvolution({ request: { limit: 0 } } as never, callback as never);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const resp = callback.mock.calls[0]?.[1] as GrpcRunHarnessEvolutionResponse;
+    expect(resp.sessions_analyzed).toBe(0);
+    expect(resp.patches_generated).toBe(0);
+    expect(resp.summary).toHaveLength(0);
   });
 });

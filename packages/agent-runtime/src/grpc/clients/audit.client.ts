@@ -13,6 +13,8 @@ import type {
   GrpcGetTeamQuotaResponse,
   GrpcCheckQuotaExceededRequest,
   GrpcCheckQuotaExceededResponse,
+  GrpcQueryEventsRequest,
+  GrpcAuditEvent,
 } from "@tessera/shared";
 
 export interface CostSummary {
@@ -78,7 +80,22 @@ export class AuditGrpcClient {
     });
   }
 
-  /** Fire-and-forget — records cost to ledger, errors are swallowed + stderr-logged */
+  /**
+   * Query historical audit events (streaming QueryEvents RPC).
+   * Used by the harness self-evolution pipeline to source session events.
+   */
+  queryEvents(req: GrpcQueryEventsRequest): Promise<GrpcAuditEvent[]> {
+    return new Promise((resolve, reject) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const call = this.client.QueryEvents(req) as any;
+      const events: GrpcAuditEvent[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      call.on("data", (event: any) => events.push(event as GrpcAuditEvent));
+      call.on("end", () => resolve(events));
+      call.on("error", (err: Error) => reject(err));
+    });
+  }
+
   recordCost(params: {
     session_id: string;
     user_id: string;

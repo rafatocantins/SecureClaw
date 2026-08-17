@@ -10,6 +10,7 @@
 import { loadProto, grpc, serverCredentials } from "@tessera/shared";
 import type { SessionManager } from "../session/session-manager.js";
 import type { AgentLoop } from "../llm/agent-loop.js";
+import type { HarnessEvolutionService } from "../harness-evolution/evolution-service.js";
 import type { AgentRuntimeConfig } from "../config.js";
 import { makeAgentImpl } from "./agent.impl.js";
 
@@ -17,7 +18,8 @@ export function startAgentGrpcServer(
   sessionManager: SessionManager,
   agentLoop: AgentLoop,
   config: AgentRuntimeConfig,
-  addr: string
+  addr: string,
+  harnessEvolution: HarnessEvolutionService
 ): Promise<grpc.Server> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,7 +32,7 @@ export function startAgentGrpcServer(
 
   const server = new grpc.Server();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  server.addService((AgentServiceDef as any).service, makeAgentImpl(sessionManager, agentLoop, config));
+  server.addService((AgentServiceDef as any).service, makeAgentImpl(sessionManager, agentLoop, config, harnessEvolution));
 
   const creds = serverCredentials("agent-runtime");
 
