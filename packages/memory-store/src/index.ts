@@ -21,14 +21,14 @@ const isMain =
   process.argv[1].endsWith("index.js");
 
 if (isMain) {
-  const { loadDotenv } = await import("@tessera/shared");
+  const { loadDotenv, replaceFileSync } = await import("@tessera/shared");
   loadDotenv();
 
   const { createMemoryDatabase: createDb } = await import("./db/connection.js");
   const { MemoryService: Svc } = await import("./memory.service.js");
   const { startMemoryGrpcServer: startServer } = await import("./grpc/server.js");
 
-  const { existsSync, renameSync } = await import("node:fs");
+  const { existsSync } = await import("node:fs");
   const { join } = await import("node:path");
 
   const dataDir = process.env["MEMORY_DATA_DIR"] ?? "/data/memory";
@@ -37,7 +37,7 @@ if (isMain) {
   // Apply pending restore if present (written by RestoreState RPC)
   const pendingDb = dbPath + ".new";
   if (existsSync(pendingDb)) {
-    renameSync(pendingDb, dbPath);
+    replaceFileSync(pendingDb, dbPath);
     process.stdout.write("[memory-store] Applied pending restore: memory.db replaced\n");
   }
 

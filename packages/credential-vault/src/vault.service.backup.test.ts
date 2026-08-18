@@ -9,9 +9,11 @@ import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import * as tar from "tar-stream";
 import { VaultService } from "./vault.service.js";
+import { replaceFileSync } from "@tessera/shared";
 
 let tmpDir: string;
 let svc: VaultService;
+let svcClosed: boolean;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "tessera-vault-backup-"));
@@ -22,10 +24,11 @@ beforeEach(() => {
     { mode: 0o600 },
   );
   svc = new VaultService(tmpDir);
+  svcClosed = false;
 });
 
 afterEach(() => {
-  svc.close();
+  if (!svcClosed) svc.close();
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -117,10 +120,15 @@ describe("startup migration", () => {
     const pendingPath = join(tmpDir, "vault-refs.db.new");
     writeFileSync(pendingPath, "pending-restore-data");
 
+    // Production runs this migration at startup BEFORE opening the connection.
+    // Close the handle here too: on Windows, renaming over an open destination
+    // fails with EPERM.
+    svc.close();
+    svcClosed = true;
+
     // The startup migration logic is in index.ts — replicate it here
-    const { existsSync: exists, renameSync: rename } = await import("node:fs");
-    if (exists(pendingPath)) {
-      rename(pendingPath, join(tmpDir, "vault-refs.db"));
+    if (existsSync(pendingPath)) {
+      replaceFileSync(pendingPath, join(tmpDir, "vault-refs.db"));
     }
 
     expect(existsSync(pendingPath)).toBe(false);

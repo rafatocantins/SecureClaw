@@ -10,13 +10,13 @@ export type { SecretRef } from "./ref-store.js";
 // ── Standalone server entry point ─────────────────────────────────────────
 const isMain = process.argv[1]?.endsWith("index.js");
 if (isMain) {
-  const { loadDotenv } = await import("@tessera/shared");
+  const { loadDotenv, replaceFileSync } = await import("@tessera/shared");
   loadDotenv();
 
   const { VaultService: Svc } = await import("./vault.service.js");
   const { startVaultGrpcServer: start } = await import("./grpc/server.js");
 
-  const { existsSync, renameSync } = await import("node:fs");
+  const { existsSync } = await import("node:fs");
   const { join } = await import("node:path");
 
   const dataDir = process.env["VAULT_DATA_DIR"] ?? "/tmp/tessera-vault";
@@ -24,7 +24,7 @@ if (isMain) {
   // Apply pending restore if present (written by RestoreState RPC)
   const pendingDb = join(dataDir, "vault-refs.db.new");
   if (existsSync(pendingDb)) {
-    renameSync(pendingDb, join(dataDir, "vault-refs.db"));
+    replaceFileSync(pendingDb, join(dataDir, "vault-refs.db"));
     process.stdout.write("[vault] Applied pending restore: vault-refs.db replaced\n");
   }
 
