@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "if [ \"$TESSERA_RUN_INTEGRATION\" = \"1\" ]; then vitest run --reporter=verbose; else echo 'TESSERA_RUN_INTEGRATION not set, skipping integration tests'; fi"
+    "test": "node scripts/test.mjs"
   },
   "devDependencies": {
     "@types/ws": "^8.5.13",
