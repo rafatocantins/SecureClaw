@@ -2,29 +2,32 @@
  * memory.service.backup.test.ts -- Tests for MemoryService.dumpState / restoreState.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { createMemoryDatabase } from "./db/connection.js";
 import { MemoryService } from "./memory.service.js";
+import { replaceFileSync } from "@tessera/shared";
 import type { DatabaseSync } from "node:sqlite";
 
 let tmpDir: string;
 let db: DatabaseSync;
 let svc: MemoryService;
 let dbPath: string;
+let dbClosed: boolean;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "tessera-memory-backup-"));
   dbPath = join(tmpDir, "memory.db");
   db = createMemoryDatabase(tmpDir);
   svc = new MemoryService(db, dbPath);
+  dbClosed = false;
 });
 
 afterEach(() => {
-  db.close();
+  if (!dbClosed) db.close();
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -75,8 +78,14 @@ describe("startup migration", () => {
     const pendingPath = dbPath + ".new";
     writeFileSync(pendingPath, "pending-restore-data");
 
+    // Production runs this migration at startup BEFORE opening the connection.
+    // Close the handle here too: on Windows, renaming over an open destination
+    // fails with EPERM.
+    db.close();
+    dbClosed = true;
+
     if (existsSync(pendingPath)) {
-      renameSync(pendingPath, dbPath);
+      replaceFileSync(pendingPath, dbPath);
     }
 
     expect(existsSync(pendingPath)).toBe(false);
