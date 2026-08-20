@@ -29,6 +29,7 @@ import { skillsRoute } from "./routes/skills.route.js";
 import { tokenRoute } from "./routes/token.route.js";
 import { backupRoute } from "./routes/backup.route.js";
 import { memoryRoute } from "./routes/memory.route.js";
+import { harnessRoute } from "./routes/harness.route.js";
 import { MemoryGrpcClient } from "./grpc/memory.client.js";
 import type { AgentGrpcClient } from "./grpc/agent.client.js";
 import { AuditGrpcClient } from "./grpc/audit.client.js";
@@ -152,6 +153,8 @@ export async function buildServer(config: GatewayConfig, agentClient: AgentGrpcC
 
   const memoryClient = new MemoryGrpcClient();
   await app.register(memoryRoute, { prefix: "/api/v1/memory", memoryClient });
+
+  await app.register(harnessRoute, { prefix: "/api/v1/harness", agentClient });
 
   return app;
 }

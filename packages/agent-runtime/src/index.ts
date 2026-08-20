@@ -30,6 +30,7 @@ export type { TaskComplexity, OrchestratorConfig, Task, TaskResult, VerifierFeed
 export { SessionAnalyzer } from "./harness-evolution/session-analyzer.js";
 export { HarnessPatchGenerator } from "./harness-evolution/patch-generator.js";
 export { HarnessEvolutionService } from "./harness-evolution/evolution-service.js";
+export { AuditServiceAdapter } from "./harness-evolution/audit-service.adapter.js";
 export {
   detectToolFailures,
   detectLoops,
@@ -117,6 +118,25 @@ if (isMain) {
   const skillsClient = new SkillsGrpcClient();
   const memoryClient = new MemoryGrpcClient();
 
+  // ── Harness Self-Evolution wiring (T-3-07 / Issue #30) ──────────────────
+  // The pipeline is wired end-to-end here and injected into the gRPC server.
+  // SessionAnalyzer sources session data through the AuditServiceAdapter over
+  // the audit client; HarnessEvolutionService uses auditClient for audit events
+  // and memoryClient to persist patches. No process.env reads inside handlers.
+  const { SessionAnalyzer: SessionAnalyzerCtor } = await import("./harness-evolution/session-analyzer.js");
+  const { HarnessPatchGenerator: HarnessPatchGeneratorCtor } = await import("./harness-evolution/patch-generator.js");
+  const { HarnessEvolutionService: HarnessEvolutionServiceCtor } = await import("./harness-evolution/evolution-service.js");
+  const { AuditServiceAdapter: AuditServiceAdapterCtor } = await import("./harness-evolution/audit-service.adapter.js");
+
+  const sessionAnalyzer = new SessionAnalyzerCtor(new AuditServiceAdapterCtor(auditClient));
+  const harnessPatchGenerator = new HarnessPatchGeneratorCtor();
+  const harnessEvolutionService = new HarnessEvolutionServiceCtor(
+    sessionAnalyzer,
+    harnessPatchGenerator,
+    auditClient,
+    memoryClient,
+  );
+
   // Webhook alerting — enabled when TESSERA_WEBHOOK_URL is set.
   // Both URL and secret must be present to activate (secret enables HMAC signing).
   // TESSERA_WEBHOOK_SECRET is optional — if absent, no X-Webhook-Signature header is sent.
@@ -135,7 +155,7 @@ if (isMain) {
   // Provider configuration is now pre-loaded via loadConfig() above (PATT-002).
   // No lazy process.env reads remain — all values were resolved at startup.
 
-  await start(sessionManager, agentLoop, config, config.agentRuntimeAddr);
+  await start(sessionManager, agentLoop, config, config.agentRuntimeAddr, harnessEvolutionService);
   process.stdout.write("[agent-runtime] Service ready\n");
 
   // Graceful shutdown: flush OTel spans before exit

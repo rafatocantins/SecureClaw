@@ -21,6 +21,13 @@ import type {
   GrpcListPendingApprovalsRequest,
   GrpcListPendingApprovalsResponse,
   GrpcPendingApprovalSummary,
+  GrpcListHarnessPatchesRequest,
+  GrpcListHarnessPatchesResponse,
+  GrpcHarnessPatchInfo,
+  GrpcApplyHarnessPatchRequest,
+  GrpcApplyHarnessPatchResponse,
+  GrpcRunHarnessEvolutionRequest,
+  GrpcRunHarnessEvolutionResponse,
 } from "@tessera/shared";
 
 export interface SessionStatus {
@@ -143,6 +150,54 @@ export class AgentGrpcClient {
         (err: grpc.ServiceError | null, res: GrpcListPendingApprovalsResponse) => {
           if (err) { reject(err); return; }
           resolve(res.approvals ?? []);
+        }
+      );
+    });
+  }
+
+  /**
+   * List stored + pending harness self-evolution patches.
+   */
+  listHarnessPatches(): Promise<GrpcHarnessPatchInfo[]> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcListHarnessPatchesRequest = {};
+      this.client.ListHarnessPatches(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcListHarnessPatchesResponse) => {
+          if (err) { reject(err); return; }
+          resolve(res.patches ?? []);
+        }
+      );
+    });
+  }
+
+  /**
+   * Run the harness self-evolution pipeline (analyze → generate → validate).
+   */
+  runHarnessEvolution(limit = 50): Promise<GrpcRunHarnessEvolutionResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcRunHarnessEvolutionRequest = { limit };
+      this.client.RunHarnessEvolution(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcRunHarnessEvolutionResponse) => {
+          if (err) { reject(err); return; }
+          resolve(res);
+        }
+      );
+    });
+  }
+
+  /**
+   * Apply a harness patch by ID through the security gate.
+   */
+  applyHarnessPatch(patchId: string): Promise<GrpcApplyHarnessPatchResponse> {
+    return new Promise((resolve, reject) => {
+      const req: GrpcApplyHarnessPatchRequest = { patch_id: patchId };
+      this.client.ApplyHarnessPatch(
+        req,
+        (err: grpc.ServiceError | null, res: GrpcApplyHarnessPatchResponse) => {
+          if (err) { reject(err); return; }
+          resolve(res);
         }
       );
     });

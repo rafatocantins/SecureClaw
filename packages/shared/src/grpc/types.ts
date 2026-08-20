@@ -106,6 +106,53 @@ export interface GrpcGetSessionStatusResponse {
   tool_call_count: number;
 }
 
+// ── Harness Self-Evolution (Agent Service) ─────────────────────────────────
+
+export interface GrpcListHarnessPatchesRequest {}
+
+export interface GrpcHarnessPatchInfo {
+  id: string;
+  type: string;
+  target: string;
+  proposed_change: string;
+  confidence: number;
+  recommendation: string;
+  applied: boolean;
+  applied_at: number;
+}
+
+export interface GrpcListHarnessPatchesResponse {
+  patches: GrpcHarnessPatchInfo[];
+}
+
+export interface GrpcApplyHarnessPatchRequest {
+  patch_id: string;
+}
+
+export interface GrpcApplyHarnessPatchResponse {
+  id: string;
+  applied: boolean;
+  reason: string;
+}
+
+export interface GrpcRunHarnessEvolutionRequest {
+  limit: number;
+}
+
+export interface GrpcPatternSummaryInfo {
+  pattern_type: string;
+  total_occurrences: number;
+  affected_sessions: number;
+}
+
+export interface GrpcRunHarnessEvolutionResponse {
+  sessions_analyzed: number;
+  patches_generated: number;
+  patches_applied: number;
+  patches_rejected: number;
+  summary: GrpcPatternSummaryInfo[];
+}
+
 // ── Vault Service ─────────────────────────────────────────────────────────
 
 export interface GrpcSetSecretRequest {

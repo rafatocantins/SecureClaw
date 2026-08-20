@@ -13,6 +13,10 @@ service AgentService {
   // Control UI
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse);
+  // Harness Self-Evolution
+  rpc ListHarnessPatches(ListHarnessPatchesRequest) returns (ListHarnessPatchesResponse);
+  rpc ApplyHarnessPatch(ApplyHarnessPatchRequest) returns (ApplyHarnessPatchResponse);
+  rpc RunHarnessEvolution(RunHarnessEvolutionRequest) returns (RunHarnessEvolutionResponse);
 }
 
 // Session management
@@ -154,4 +158,51 @@ message GetSessionStatusResponse {
   int32 total_output_tokens = 4;
   double total_cost_usd = 5;
   int32 tool_call_count = 6;
+}
+
+// ── Harness Self-Evolution ─────────────────────────────────────────────────
+
+message ListHarnessPatchesRequest {}
+
+message HarnessPatchInfo {
+  string id = 1;
+  string type = 2;
+  string target = 3;
+  string proposed_change = 4;
+  double confidence = 5;
+  string recommendation = 6;
+  bool applied = 7;
+  int64 applied_at = 8;
+}
+
+message ListHarnessPatchesResponse {
+  repeated HarnessPatchInfo patches = 1;
+}
+
+message ApplyHarnessPatchRequest {
+  string patch_id = 1;
+}
+
+message ApplyHarnessPatchResponse {
+  string id = 1;
+  bool applied = 2;
+  string reason = 3;
+}
+
+message RunHarnessEvolutionRequest {
+  int32 limit = 1;
+}
+
+message PatternSummaryInfo {
+  string pattern_type = 1;
+  int32 total_occurrences = 2;
+  int32 affected_sessions = 3;
+}
+
+message RunHarnessEvolutionResponse {
+  int32 sessions_analyzed = 1;
+  int32 patches_generated = 2;
+  int32 patches_applied = 3;
+  int32 patches_rejected = 4;
+  repeated PatternSummaryInfo summary = 5;
 }
