@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../telemetry.js", () => ({
-  getTracer: () => ({
+  getTracer: (): { startActiveSpan: typeof mocks.startActiveSpan } => ({
     startActiveSpan: mocks.startActiveSpan,
   }),
 }));
