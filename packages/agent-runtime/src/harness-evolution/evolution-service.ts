@@ -16,6 +16,8 @@
  *   - finalizeSession(): pipeline hook for session finalization
  */
 
+import { createHash } from "node:crypto";
+import { getTracer } from "../telemetry.js";
 import type { SessionAnalyzer, PatternSummary } from "./session-analyzer.js";
 import type { HarnessPatchGenerator } from "./patch-generator.js";
 import type {
@@ -74,6 +76,25 @@ const BLOCKED_TERMS = ["disable sandbox", "bypass"];
 const AUTO_APPLY_THRESHOLD = 0.7;
 const REJECT_THRESHOLD = 0.3;
 
+/**
+ * Compute a deterministic patch id from the patch's semantic content.
+ *
+ * Unlike the generator's timestamp-based ids, this id is stable across
+ * evolve() runs: the same (type, target, proposedChange) always yields the
+ * same id. That is what makes the daily evolution job idempotent — running it
+ * multiple times over the same sessions skips already-stored patches instead
+ * of creating duplicates.
+ */
+export function computeDeterministicId(
+  type: string,
+  target: string,
+  proposedChange: string,
+): string {
+  return createHash("sha256")
+    .update(`${type}:${target}:${proposedChange}`)
+    .digest("hex");
+}
+
 // ── HarnessEvolutionService ───────────────────────────────────────────────
 
 export class HarnessEvolutionService {
@@ -115,56 +136,98 @@ export class HarnessEvolutionService {
    * Human approval is always required.
    */
   async evolve(limit = 50): Promise<EvolutionResult> {
-    // 1. Analyze sessions
-    const analyses = await this.analyzer.analyze(limit);
+    const tracer = getTracer();
+
+    // 1. Analyze sessions (sub-span)
+    const analyses = await tracer.startActiveSpan(
+      "harness_evolution.analyze",
+      async (span) => {
+        try {
+          return await this.analyzer.analyze(limit);
+        } finally {
+          span.end();
+        }
+      },
+    );
 
     const sessionsAnalyzed = analyses.length;
 
-    // 2. Generate patches with confidence scores
-    const patchesWithConfidence =
-      this.generator.generatePatchesWithConfidence(analyses);
+    // 2. Generate patches with confidence scores (sub-span)
+    const patchesWithConfidence = tracer.startActiveSpan(
+      "harness_evolution.generate",
+      (span) => {
+        try {
+          return this.generator.generatePatchesWithConfidence(analyses);
+        } finally {
+          span.end();
+        }
+      },
+    );
 
     const patchesGenerated = patchesWithConfidence.length;
 
-    // 3 + 4. Validate and persist each patch as PENDING
+    // 3 + 4. Validate and persist each patch as PENDING (sub-span)
     let patchesApplied = 0;
     let patchesRejected = 0;
 
-    for (const { patch, confidence } of patchesWithConfidence) {
-      // Update the patch confidence from the calculated score
-      patch.confidence = confidence.score;
+    tracer.startActiveSpan("harness_evolution.validate_persist", (span) => {
+      try {
+        for (const { patch, confidence } of patchesWithConfidence) {
+          // Recompute a deterministic id from the patch content (idempotency):
+          // re-running evolve() over the same sessions yields the same ids, so
+          // already-stored/approved patches are skipped instead of duplicated.
+          patch.id = computeDeterministicId(
+            patch.type,
+            patch.target,
+            patch.proposedChange,
+          );
 
-      // ── Phase 1: Validate patch ──────────────────────────────────
-      const validation = this.validatePatch(patch);
+          // Skip patches that were already stored or are already pending.
+          if (
+            this.patchStore.has(patch.id) ||
+            this.pendingPatches.has(patch.id)
+          ) {
+            continue;
+          }
 
-      // Audit event: patch generated
-      this.auditClient.logEvent({
-        event_type: "HARNESS_PATCH_GENERATED",
-        payload: {
-          patch_id: patch.id,
-          confidence: confidence.score,
-          pattern_type: patch.type,
-          validation_valid: validation.valid,
-          ...(validation.reason
-            ? { validation_reason: validation.reason }
-            : {}),
-        },
-        severity: "INFO",
-      });
+          // Update the patch confidence from the calculated score
+          patch.confidence = confidence.score;
 
-      if (!validation.valid) {
-        // Store rejected patch for audit trail
-        this.storePatch(patch, false);
-        patchesRejected++;
-        continue;
+          // ── Phase 1: Validate patch ──────────────────────────────────
+          const validation = this.validatePatch(patch);
+
+          // Audit event: patch generated
+          this.auditClient.logEvent({
+            event_type: "HARNESS_PATCH_GENERATED",
+            payload: {
+              patch_id: patch.id,
+              confidence: confidence.score,
+              pattern_type: patch.type,
+              validation_valid: validation.valid,
+              ...(validation.reason
+                ? { validation_reason: validation.reason }
+                : {}),
+            },
+            severity: "INFO",
+          });
+
+          if (!validation.valid) {
+            // Store rejected patch for audit trail
+            this.storePatch(patch, false);
+            patchesRejected++;
+            continue;
+          }
+
+          // ── Store as pending (requires human review) ──────────────────
+          this.storePendingPatch(patch, validation);
+
+          // Still log to audit that the patch was stored as pending
+          patchesApplied++;
+        }
+      } finally {
+        span.end();
       }
-
-      // ── Store as pending (requires human review) ──────────────────
-      this.storePendingPatch(patch, validation);
-
-      // Still log to audit that the patch was stored as pending
-      patchesApplied++;
-    }
+    });
 
     // 5. Compute summary
     const summary = this.analyzer.getPatternSummary(analyses);

@@ -305,3 +305,50 @@ describe("schema integrity", () => {
     expect(results).toHaveLength(0);
   });
 });
+
+// ── storeHarnessPatch — applied-flag preservation ─────────────────────────────
+
+describe("storeHarnessPatch (applied-flag preservation)", () => {
+  const base = {
+    id: "hp-1",
+    patch_type: "tool_rule",
+    target: "tool_allowlist",
+    proposed_change: "restrict shell_exec",
+    confidence: 0.8,
+    recommendation: "apply",
+    source_patterns: "[]",
+    generated_at: 1_000,
+  };
+
+  it("does not downgrade an applied patch when re-stored as pending", () => {
+    const { db, svc } = makeService();
+
+    // Human approves → applied=1
+    svc.storeHarnessPatch({ ...base, applied: 1, applied_at: 2_000 });
+
+    // Daily job re-persists the same deterministic id as pending → applied=0
+    svc.storeHarnessPatch({ ...base, applied: 0, applied_at: 0 });
+
+    const row = db
+      .prepare("SELECT applied, applied_at FROM harness_patches WHERE id = ?")
+      .get("hp-1") as { applied: number; applied_at: number | null };
+    expect(row.applied).toBe(1);
+    expect(row.applied_at).toBe(2_000);
+  });
+
+  it("still promotes a pending patch to applied on explicit apply", () => {
+    const { db, svc } = makeService();
+
+    // First stored as pending → applied=0
+    svc.storeHarnessPatch({ ...base, applied: 0, applied_at: 0 });
+
+    // Later applied → applied=1 must win
+    svc.storeHarnessPatch({ ...base, applied: 1, applied_at: 3_000 });
+
+    const row = db
+      .prepare("SELECT applied, applied_at FROM harness_patches WHERE id = ?")
+      .get("hp-1") as { applied: number; applied_at: number | null };
+    expect(row.applied).toBe(1);
+    expect(row.applied_at).toBe(3_000);
+  });
+});

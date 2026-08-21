@@ -127,6 +127,7 @@ if (isMain) {
   const { HarnessPatchGenerator: HarnessPatchGeneratorCtor } = await import("./harness-evolution/patch-generator.js");
   const { HarnessEvolutionService: HarnessEvolutionServiceCtor } = await import("./harness-evolution/evolution-service.js");
   const { AuditServiceAdapter: AuditServiceAdapterCtor } = await import("./harness-evolution/audit-service.adapter.js");
+  const { runDailyEvolution } = await import("./harness-evolution/daily-job.js");
 
   const sessionAnalyzer = new SessionAnalyzerCtor(new AuditServiceAdapterCtor(auditClient));
   const harnessPatchGenerator = new HarnessPatchGeneratorCtor();
@@ -136,6 +137,21 @@ if (isMain) {
     auditClient,
     memoryClient,
   );
+
+  // Daily harness-evolution job (idempotent) — enabled via
+  // HARNESS_EVOLUTION_SCHEDULE=1. Runs HarnessEvolutionService.evolve() every
+  // 24h inside an OTel HARNESS_EVOLUTION root span.
+  let evolutionInterval: ReturnType<typeof setInterval> | undefined;
+  if (config.harnessEvolutionSchedule) {
+    evolutionInterval = setInterval(() => {
+      runDailyEvolution(harnessEvolutionService).catch((err: unknown) => {
+        process.stderr.write(
+          `[agent-runtime] Harness evolution daily job failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      });
+    }, 24 * 60 * 60 * 1000);
+    process.stdout.write("[agent-runtime] Harness evolution daily job scheduled\n");
+  }
 
   // Webhook alerting — enabled when TESSERA_WEBHOOK_URL is set.
   // Both URL and secret must be present to activate (secret enables HMAC signing).
@@ -161,6 +177,9 @@ if (isMain) {
   // Graceful shutdown: flush OTel spans before exit
   const shutdown = (signal: string): void => {
     process.stdout.write(`[agent-runtime] Received ${signal} — shutting down\n`);
+    if (evolutionInterval !== undefined) {
+      clearInterval(evolutionInterval);
+    }
     shutdownTelemetry().then(() => process.exit(0)).catch(() => process.exit(1));
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));

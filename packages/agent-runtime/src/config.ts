@@ -25,6 +25,13 @@ export interface AgentRuntimeConfig {
 
   /** Provider base URL overrides, keyed by provider name */
   providerBaseUrls: Record<string, string | undefined>;
+
+  /**
+   * Enable the daily harness-evolution job (default: false).
+   * Set HARNESS_EVOLUTION_SCHEDULE=1 to run HarnessEvolutionService.evolve()
+   * every 24h with an OTel HARNESS_EVOLUTION root span.
+   */
+  harnessEvolutionSchedule: boolean;
 }
 
 /**
@@ -78,6 +85,8 @@ export function loadConfig(): AgentRuntimeConfig {
     providerApiKeys,
     providerModels,
     providerBaseUrls,
+    harnessEvolutionSchedule:
+      process.env["HARNESS_EVOLUTION_SCHEDULE"] === "1",
   };
 }
 

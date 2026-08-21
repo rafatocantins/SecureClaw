@@ -296,8 +296,8 @@ export class MemoryService {
          confidence      = excluded.confidence,
          recommendation  = excluded.recommendation,
          source_patterns = excluded.source_patterns,
-         applied         = excluded.applied,
-         applied_at      = excluded.applied_at`
+         applied         = CASE WHEN harness_patches.applied = 1 THEN 1 ELSE excluded.applied END,
+         applied_at      = CASE WHEN harness_patches.applied = 1 THEN harness_patches.applied_at ELSE excluded.applied_at END`
     );
 
     this.stmtGetActivePatches = this.db.prepare(

@@ -31,6 +31,7 @@ function makeConfig(overrides: Partial<AgentRuntimeConfig> = {}): AgentRuntimeCo
     providerApiKeys: {},
     providerModels: {},
     providerBaseUrls: {},
+    harnessEvolutionSchedule: false,
     ...overrides,
   };
 }
