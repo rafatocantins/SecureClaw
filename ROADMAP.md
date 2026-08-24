@@ -407,7 +407,7 @@ Issue #29 (triage + model routing) is now unblocked and ready for implementation
 >
 > **New Phase 3 priority order:**
 > 1. **Orchestration Layer** (#29, Augustus Sprint 1) — triage + model routing + TRINITY pipeline
-> 2. **Harness Self-Evolution** (#30, Augustus Sprint 2) — automated prompt/tool improvement from lessons
+> 2. **Harness Self-Evolution** (#30, Augustus Sprint 2) — automated prompt/tool improvement from lessons ✅
 > 3. **Verifier Gate** (#31, Augustus Sprint 3) — mandatory output validation before delivery
 > 4. **Multi-Agent Orchestration** (existing 3D, refined by Augustus Sprint 4)
 > 5. **User Preference Learning** (existing 3C)
@@ -639,7 +639,7 @@ Extend the marketplace with a full provenance chain:
 | 21 | ~~Vector/semantic memory retrieval (sqlite-vec) (T-3-02)~~ ✅ | done | Phase 3B | |
 | 22 | ~~ADR-007: Multi-Model Orchestration Design Doc~~ ✅ | done | Phase 3F | [#32](https://github.com/rafatocantins/Tessera/issues/32) |
 | 23 | ~~Orchestration Layer — Model Selection + Role Assignment~~ ✅ | done | Phase 3F | [#29](https://github.com/rafatocantins/Tessera/issues/29) |
-| 24 | **Harness Self-Evolution — Automated Prompt/Tool Improvement** 🔓⚡ | ~1.5 sessions | Phase 3F | [#30](https://github.com/rafatocantins/Tessera/issues/30) |
+| 24 | ~~Harness Self-Evolution — Automated Prompt/Tool Improvement~~ ✅ | done | Phase 3F | [#30](https://github.com/rafatocantins/Tessera/issues/30) |
 | 25 | ~~Verifier Gate — Mandatory Output Validation~~ ✅ | done | Phase 3F | [#31](https://github.com/rafatocantins/Tessera/issues/31) |
 | 26 | User preference learning | ~1.5 sessions | Phase 3C | |
 | 27 | Multi-agent orchestration | ~3–4 sessions | Phase 3D | |
