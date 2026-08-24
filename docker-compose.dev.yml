@@ -26,7 +26,7 @@ services:
     environment:
       NODE_ENV: development
       LOG_LEVEL: debug
-      GATEWAY_HMAC_SECRET: "dev-insecure-hmac-secret-change-in-prod"
+      GATEWAY_HMAC_SECRET: "${GATEWAY_HMAC_SECRET:-dev-insecure-hmac-secret-change-in-prod}"
     volumes:
       - ./packages/gateway/src:/app/packages/gateway/src:ro
       - ./packages/shared/src:/app/packages/shared/src:ro
@@ -46,7 +46,7 @@ services:
   credential-vault:
     environment:
       NODE_ENV: development
-      VAULT_MASTER_KEY: "dev-insecure-vault-key-change-in-prod"
+      VAULT_MASTER_KEY: "${VAULT_MASTER_KEY:-dev-insecure-vault-key-change-in-prod}"
 
   skills-engine:
     environment:

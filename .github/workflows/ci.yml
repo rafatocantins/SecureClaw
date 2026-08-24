@@ -306,15 +306,12 @@ jobs:
         continue-on-error: true  # ESM dynamic import in CI may need adjustment
 
   # ── Integration tests (Docker Compose + mock LLM) ─────────────────────────
-  # ⚠️ Temporarily disabled (2026-07-28): 5/5 authenticated tests fail with 401
-  # due to HMAC secret mismatch between CI env and docker-compose.dev.yml override.
-  # See GitHub issue #61 (fix/integration-compose-fixes) for root cause + fix.
-  # DO NOT re-enable with continue-on-error — use if: false until the HMAC fix lands.
+  # Re-enabled after the HMAC secret mismatch fix (docker-compose.dev.yml now
+  # interpolates GATEWAY_HMAC_SECRET from the environment).
   integration-test:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: [build-all]
-    if: false
     steps:
       - uses: actions/checkout@v4
 
