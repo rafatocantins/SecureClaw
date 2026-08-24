@@ -1,3 +1,6 @@
+### Added — T-3-07 (Harness Self-Evolution, #30)
+- feat(agent-runtime): harness self-evolution module — `session-analyzer.ts`, `patch-generator.ts`, `pattern-detectors.ts` (confidence scoring), `evolution-service.ts`, idempotent `daily-job.ts` with OTel `HARNESS_EVOLUTION` span; exposed via gRPC + gateway + CLI (`tessera harness analyze` / `apply`); `harness_patches` table in memory-store; audit events `HARNESS_PATCH_GENERATED` / `HARNESS_PATCH_APPLIED`
+
 ### Fixed — T-2-02
 - fix(scripts): replace `gen-certs.sh` with cross-platform `gen-certs.mjs`; generates CA + 5 per-service certs with SANs (no openssl bash dependency for Node users)
 - fix(scripts): add SUPERSEDED comment to `scripts/gen-certs.sh`
