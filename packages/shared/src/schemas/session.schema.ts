@@ -33,7 +33,6 @@ export const SessionSchema = z.object({
 export type Session = z.infer<typeof SessionSchema>;
 
 export const CreateSessionRequestSchema = z.object({
-  user_id: z.string().min(1),
   provider: z.string().min(1),
   metadata: SessionMetadataSchema.optional(),
 });
