@@ -35,7 +35,7 @@ export class WsTestClient {
       .replace(/\/$/, "");
 
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(`${wsUrl}/chat/${sessionId}`, {
+      this.ws = new WebSocket(`${wsUrl}/api/v1/chat/${sessionId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
